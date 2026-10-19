@@ -30,7 +30,11 @@ public sealed class MainViewModel : Observable, IDisposable
     private GameEntry? _selectedGame;
     private PerformanceProfile? _selectedProfile;
     private bool _busy;
+    private bool _isApplyingAll;
+    private string _syncProgressMessage = "";
+    private double _syncProgressPercent;
     private readonly DispatcherTimer _rtssTimer = new();
+    private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool _lastRtssProcessState;
 
     public ObservableCollection<GameEntry> Games => _state.Games;
@@ -38,6 +42,18 @@ public sealed class MainViewModel : Observable, IDisposable
     public ObservableCollection<ModeOption<string>> DefaultDisplayOptions { get; } = new();
     public ObservableCollection<ModeOption<string>> GameDisplayOptions { get; } = new();
     public ObservableCollection<ModeOption<int>> FpsFractions { get; } = new();
+    public IReadOnlyList<ModeOption<string>> ThemeOptions { get; } =
+    [
+        new("Light", "Светлая"),
+        new("Dark", "Тёмная")
+    ];
+    public IReadOnlyList<ModeOption<RtssLimiterMode>> RtssLimiterModes { get; } =
+    [
+        new(RtssLimiterMode.Async, "Асинхронный (Async)"),
+        new(RtssLimiterMode.FrontEdgeSync, "Передний фронт (Front Edge Sync)"),
+        new(RtssLimiterMode.BackEdgeSync, "Задний фронт (Back Edge Sync)"),
+        new(RtssLimiterMode.NvidiaReflex, "NVIDIA Reflex")
+    ];
     public ObservableCollection<AttentionItem> AttentionItems { get; } = new();
     public bool IsUpdatingDisplayOptions { get; private set; }
     public bool IsUpdatingFpsOptions { get; private set; }
@@ -65,7 +81,8 @@ public sealed class MainViewModel : Observable, IDisposable
     public string[] StatusFilters { get; } = ["Все статусы", "Без профиля", "Нужен .exe", "Ожидает", "Применён", "Перезапустите", "Недоступно", "Ошибка"];
     public string Notice { get => _notice; set => Set(ref _notice, value); }
     public GameEntry? SelectedGame { get => _selectedGame; set { if (Set(ref _selectedGame, value)) Changed(nameof(SelectedGameHasBackup)); } }
-    public bool SelectedGameHasBackup => SelectedGame is not null && _state.Backups.Any(b => b.ExePath.Equals(SelectedGame.ExePath, StringComparison.OrdinalIgnoreCase));
+    public bool SelectedGameHasBackup => !IsApplyingAll && SelectedGame is not null &&
+        _state.Backups.Any(b => b.ExePath.Equals(SelectedGame.ExePath, StringComparison.OrdinalIgnoreCase));
     public PerformanceProfile? SelectedProfile
     {
         get => _selectedProfile;
@@ -77,7 +94,22 @@ public sealed class MainViewModel : Observable, IDisposable
             UpdateFpsFractions();
         }
     }
-    public bool SelectedProfileIsEditable => SelectedProfile is { IsBuiltIn: false };
+    public bool SelectedProfileIsEditable => !IsApplyingAll && SelectedProfile is { IsBuiltIn: false };
+    public bool IsApplyingAll
+    {
+        get => _isApplyingAll;
+        private set
+        {
+            if (!Set(ref _isApplyingAll, value)) return;
+            Changed(nameof(CanEdit));
+            Changed(nameof(SelectedGameHasBackup));
+            Changed(nameof(SelectedProfileIsEditable));
+            CommandManager.InvalidateRequerySuggested();
+        }
+    }
+    public bool CanEdit => !IsApplyingAll;
+    public string SyncProgressMessage { get => _syncProgressMessage; private set => Set(ref _syncProgressMessage, value); }
+    public double SyncProgressPercent { get => _syncProgressPercent; private set => Set(ref _syncProgressPercent, value); }
     public string SelectedProfileHelp => SelectedProfile is { IsBuiltIn: true }
         ? "Стандартный профиль защищён. Создайте его копию, чтобы изменить параметры."
         : "Параметры применятся ко всем играм, которым назначен этот профиль.";
@@ -102,6 +134,19 @@ public sealed class MainViewModel : Observable, IDisposable
         get => _state.MinimizeToTray;
         set { if (_state.MinimizeToTray != value) { _state.MinimizeToTray = value; Changed(nameof(MinimizeToTray)); SaveOnly(); } }
     }
+    public string Theme
+    {
+        get => _state.Theme;
+        set
+        {
+            string theme = value == "Light" ? "Light" : "Dark";
+            if (_state.Theme == theme) return;
+            _state.Theme = theme;
+            ThemeManager.Apply(theme);
+            Changed(nameof(Theme));
+            SaveOnly();
+        }
+    }
     public DisplayInfo? DefaultDisplay => DisplayFps.ChooseDisplay(_state, null, _displays.ToArray());
     public DisplayInfo? OverviewDisplay => _displays.FirstOrDefault(display => display.IsPrimary) ?? _displays.FirstOrDefault();
     public string OverviewDisplayHeading => _displays.Any(display => display.IsPrimary) ? "ОСНОВНОЙ ЭКРАН WINDOWS" : "ЭКРАН WINDOWS";
@@ -122,8 +167,40 @@ public sealed class MainViewModel : Observable, IDisposable
     }
     public string SelectedProfileFpsDetail => SelectedProfile is null ? "Выберите профиль" :
         DisplayFps.Resolve(_state, null, SelectedProfile, _displays.ToArray()).Detail;
-    public string RtssDirectory { get => _state.RtssDirectory; set { _state.RtssDirectory = value; Changed(nameof(RtssDirectory)); } }
-    public bool CheckAtStartup { get => _state.CheckAtStartup; set { _state.CheckAtStartup = value; Changed(nameof(CheckAtStartup)); } }
+    public string RtssDirectory { get => _state.RtssDirectory; set { if (_state.RtssDirectory == value) return; _state.RtssDirectory = value; Changed(nameof(RtssDirectory)); ScheduleSave(); } }
+    public RtssLimiterMode RtssLimiterMode
+    {
+        get => _state.RtssLimiterMode;
+        set
+        {
+            if (_state.RtssLimiterMode == value || !Enum.IsDefined(value)) return;
+            _state.RtssLimiterMode = value;
+            Changed(nameof(RtssLimiterMode));
+            foreach (var game in Games.Where(game => Profiles.Any(profile => profile.Id == game.ProfileId)))
+            { game.Status = ApplyStatus.Pending; game.Detail = "Режим лимитера RTSS изменён; примените профиль"; }
+            SaveOnly(false);
+        }
+    }
+    public bool CheckAtStartup { get => _state.CheckAtStartup; set { if (_state.CheckAtStartup == value) return; _state.CheckAtStartup = value; Changed(nameof(CheckAtStartup)); SaveOnly(false); } }
+    public bool SilentAdminLaunch
+    {
+        get => ElevatedLaunchTask.IsInstalled;
+        set
+        {
+            try
+            {
+                if (value) ElevatedLaunchTask.Install();
+                else ElevatedLaunchTask.Uninstall();
+                Notice = value ? "Запуск без повторного UAC настроен." : "Обычный запрос прав администратора восстановлен.";
+            }
+            catch (Exception ex)
+            {
+                _store.Log(ex);
+                Notice = "Не удалось изменить способ запуска: " + ex.Message;
+            }
+            Changed(nameof(SilentAdminLaunch));
+        }
+    }
     public bool AutoStart
     {
         get
@@ -159,9 +236,9 @@ public sealed class MainViewModel : Observable, IDisposable
     public ICommand AddGameCommand { get; }
     public ICommand RemoveGameCommand { get; }
     public ICommand ChooseExeCommand { get; }
+    public Func<string, string, string?, string?>? PickLocalFile { get; set; }
     public ICommand ImportSteamCommand { get; }
     public ICommand ImportEpicCommand { get; }
-    public ICommand SaveCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand ApplyGameCommand { get; }
     public ICommand VerifyCommand { get; }
@@ -170,12 +247,15 @@ public sealed class MainViewModel : Observable, IDisposable
     public ICommand BrowseRtssCommand { get; }
     public ICommand StartRtssCommand { get; }
 
-    public MainViewModel(SqliteStateStore? store = null)
+    public MainViewModel(SqliteStateStore? store = null, SyncService? sync = null)
     {
         _store = store ?? new SqliteStateStore();
-        _sync = new SyncService(_store, displayProvider: () => _displays.ToArray());
+        _saveTimer.Tick += (_, _) => SaveOnly(false);
+        _sync = sync ?? new SyncService(_store, displayProvider: () => _displays.ToArray());
         try { _state = _store.Load(); }
         catch (Exception ex) { _store.Log(ex); _state = new AppState(); Notice = "Ошибка чтения SQLite: " + ex.Message; }
+        _state.Theme = _state.Theme == "Light" ? "Light" : "Dark";
+        ThemeManager.Apply(_state.Theme);
         if (!_state.PresetNamesLocalized)
         {
             foreach (var profile in _state.Profiles)
@@ -216,14 +296,14 @@ public sealed class MainViewModel : Observable, IDisposable
             (StatusFilter == "Все статусы" || g.StatusLabel == StatusFilter);
         ProfileOptions.Add(new ProfileOption(null));
         foreach (var profile in Profiles) ProfileOptions.Add(new ProfileOption(profile));
-        AddProfileCommand = new Command(() => { var p = new PerformanceProfile(); Profiles.Add(p); ProfileOptions.Add(new ProfileOption(p)); Hook(p); SelectedProfile = p; SaveOnly(); UpdateSummary(); });
+        AddProfileCommand = new Command(() => { var p = new PerformanceProfile(); Profiles.Add(p); ProfileOptions.Add(new ProfileOption(p)); Hook(p); SelectedProfile = p; SaveOnly(); UpdateSummary(); }, () => !_busy);
         DuplicateProfileCommand = new Command(() =>
         {
             if (SelectedProfile is null) return;
             var copy = ProfilePresets.EditableCopy(SelectedProfile);
             Profiles.Add(copy); ProfileOptions.Add(new ProfileOption(copy)); Hook(copy);
             SelectedProfile = copy; SaveOnly(); UpdateSummary();
-        });
+        }, () => !_busy);
         RemoveProfileCommand = new Command(() =>
         {
             if (SelectedProfile is null) return;
@@ -231,8 +311,8 @@ public sealed class MainViewModel : Observable, IDisposable
             if (Games.Any(g => g.ProfileId == SelectedProfile.Id)) { Notice = "Сначала переназначьте игры этого профиля."; return; }
             ProfileOptions.Remove(ProfileOptions.Single(option => option.Id == SelectedProfile.Id));
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
-        });
-        AddGameCommand = new Command(AddGame);
+        }, () => !_busy);
+        AddGameCommand = new Command(AddGame, () => !_busy);
         RemoveGameCommand = new Command(() =>
         {
             if (SelectedGame is null) return;
@@ -242,12 +322,11 @@ public sealed class MainViewModel : Observable, IDisposable
                 if (SelectedGame.Status == ApplyStatus.Error) { Notice = SelectedGame.Detail; return; }
             }
             Games.Remove(SelectedGame); SelectedGame = null; SaveOnly(); UpdateSummary();
-        });
-        ChooseExeCommand = new Command(ChooseExe);
-        ImportSteamCommand = new Command(ImportSteam);
-        ImportEpicCommand = new Command(ImportEpic);
-        SaveCommand = new Command(SaveOnly);
-        ApplyCommand = new Command(() => Run(() => { SaveOnly(); _sync.ApplyAll(_state); RefreshDisplays(); Notice = "Применение завершено. Проверьте статусы игр."; }));
+        }, () => !_busy);
+        ChooseExeCommand = new Command(ChooseExe, () => !_busy);
+        ImportSteamCommand = new Command(ImportSteam, () => !_busy);
+        ImportEpicCommand = new Command(ImportEpic, () => !_busy);
+        ApplyCommand = new Command(() => _ = ApplyAllAsync(), () => !_busy);
         ApplyGameCommand = new ParameterCommand(parameter => Run(() =>
         {
             if (parameter is not GameEntry game) { Notice = "Выберите игру."; return; }
@@ -255,19 +334,19 @@ public sealed class MainViewModel : Observable, IDisposable
             _sync.ApplyOne(_state, game);
             RefreshDisplays();
             Notice = game.Name + ": " + game.Detail;
-        }));
-        VerifyCommand = new Command(() => Run(() => { _sync.CheckSaved(_state); RefreshDisplays(); SaveOnly(); Notice = "Проверка сохранённых параметров завершена."; }));
+        }), () => !_busy);
+        VerifyCommand = new Command(() => Run(() => { _sync.CheckSaved(_state); RefreshDisplays(); SaveOnly(); Notice = "Проверка сохранённых параметров завершена."; }), () => !_busy);
         RestoreCommand = new Command(() => Run(() =>
         {
             if (SelectedGame is null) { Notice = "Выберите игру."; return; }
             _sync.Restore(_state, SelectedGame); RefreshDisplays(); Notice = SelectedGame.Status == ApplyStatus.Error ? SelectedGame.Detail : "Исходные параметры восстановлены.";
-        }));
-        BackupCommand = new Command(() => Run(() => Notice = "Резервная копия: " + _store.ExportBackup(_state)));
+        }), () => !_busy);
+        BackupCommand = new Command(() => Run(() => Notice = "Резервная копия: " + _store.ExportBackup(_state)), () => !_busy);
         BrowseRtssCommand = new Command(() =>
         {
-            var dialog = new OpenFileDialog { Title = "Выберите RTSSHooks64.dll", Filter = "RTSSHooks64.dll|RTSSHooks64.dll" };
-            if (dialog.ShowDialog() == true) { RtssDirectory = Path.GetDirectoryName(dialog.FileName)!; SaveOnly(); _sync.CheckIntegrations(_state); UpdateSummary(); }
-        });
+            string? path = SelectLocalFile("Выберите RTSSHooks64.dll", "RTSSHooks64.dll", RtssDirectory);
+            if (path is not null) { RtssDirectory = Path.GetDirectoryName(path)!; SaveOnly(); _sync.CheckIntegrations(_state); UpdateSummary(); }
+        }, () => !_busy);
         StartRtssCommand = new Command(() => Run(() =>
         {
             string directory = string.IsNullOrWhiteSpace(RtssDirectory) ? RtssClient.DetectDirectory() ?? "" : RtssDirectory;
@@ -275,7 +354,7 @@ public sealed class MainViewModel : Observable, IDisposable
             if (!File.Exists(exe)) { Notice = "RTSS.exe не найден. Укажите папку RTSS в настройках."; return; }
             Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = directory });
             Notice = "RTSS запускается. Состояние обновится автоматически.";
-        }));
+        }), () => !_busy);
         foreach (var p in Profiles) Hook(p);
         foreach (var g in Games) Hook(g);
         LoadDisplays();
@@ -285,20 +364,67 @@ public sealed class MainViewModel : Observable, IDisposable
         _sync.CheckIntegrations(_state);
         UpdateSummary();
         if (_state.CheckAtStartup)
-        {
-            Run(() =>
-            {
-                _sync.CheckSaved(_state);
-                if (Games.Any(g => g.Status != ApplyStatus.Applied && g.ProfileId is not null && !string.IsNullOrWhiteSpace(g.ExePath)) ||
-                    Games.Any(g => g.ProfileId is null && _state.Backups.Any(b => b.ManagedGameId == g.Id)))
-                    _sync.ApplyAll(_state);
-                RefreshDisplays(); SaveOnly();
-            });
-        }
+            Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => _ = ApplyAllAsync(checkSavedFirst: true)),
+                DispatcherPriority.Background);
         _lastRtssProcessState = RtssClient.ProcessIsRunning;
         _rtssTimer.Interval = TimeSpan.FromSeconds(2);
         _rtssTimer.Tick += (_, _) => { PollRtss(); PollDisplays(); };
         _rtssTimer.Start();
+    }
+
+    private async Task ApplyAllAsync(bool checkSavedFirst = false)
+    {
+        if (_busy) return;
+        _busy = true;
+        IsApplyingAll = true;
+        SyncProgressPercent = 0;
+        SyncProgressMessage = checkSavedFirst ? "Проверяем сохранённые параметры игр…" : "Подготавливаем применение…";
+        Notice = checkSavedFirst ? "Проверяем настройки при запуске." : "Применяем профили. Окно остаётся доступным.";
+        try
+        {
+            SaveOnly(false);
+            if (checkSavedFirst)
+            {
+                await Task.Run(() => _sync.CheckSaved(_state));
+                RefreshDisplays();
+                bool needsApply = Games.Any(game => game.Status != ApplyStatus.Applied && game.ProfileId is not null &&
+                    !string.IsNullOrWhiteSpace(game.ExePath)) ||
+                    Games.Any(game => game.ProfileId is null && _state.Backups.Any(backup => backup.ManagedGameId == game.Id));
+                if (!needsApply)
+                {
+                    SaveOnly(false);
+                    Notice = "Проверка завершена: сохранённые параметры совпадают.";
+                    return;
+                }
+            }
+
+            var games = Games.ToArray();
+            if (games.Length == 0) { Notice = "В библиотеке пока нет игр."; return; }
+            for (int index = 0; index < games.Length; index++)
+            {
+                var game = games[index];
+                SyncProgressMessage = $"Игра {index + 1} из {games.Length}: {game.Name}";
+                await Task.Run(() => _sync.ApplyOne(_state, game));
+                SyncProgressPercent = 100d * (index + 1) / games.Length;
+                UpdateSummary();
+            }
+            int issues = games.Count(game => game.Status is ApplyStatus.Error or ApplyStatus.Unsupported);
+            Notice = issues == 0
+                ? $"Применение завершено. Обработано игр: {games.Length}. Проверьте статусы."
+                : $"Применение завершено. Обработано игр: {games.Length}; с проблемами: {issues}. Проверьте статусы в разделе «Требуют внимания».";
+        }
+        catch (Exception ex)
+        {
+            _store.Log(ex);
+            Notice = "Применение прервано: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            IsApplyingAll = false;
+            RefreshDisplays();
+            UpdateSummary();
+        }
     }
 
     private void PollRtss()
@@ -449,31 +575,47 @@ public sealed class MainViewModel : Observable, IDisposable
         Changed(nameof(SelectedProfileFpsDetail));
     }
 
-    public void Dispose() => _rtssTimer.Stop();
+    public void Dispose()
+    {
+        _rtssTimer.Stop();
+        if (_saveTimer.IsEnabled) SaveOnly(false);
+    }
 
     private void AddGame()
     {
-        var dialog = new OpenFileDialog { Title = "Выберите игровой .exe", Filter = "Приложения (*.exe)|*.exe" };
-        if (dialog.ShowDialog() != true) return;
-        if (Games.Any(g => g.ExePath.Equals(dialog.FileName, StringComparison.OrdinalIgnoreCase))) { Notice = "Этот .exe уже добавлен."; return; }
-        var game = new GameEntry { Name = Path.GetFileNameWithoutExtension(dialog.FileName), ExePath = dialog.FileName, Detail = "Выберите профиль" };
+        string? path = SelectLocalFile("Выберите игровой .exe", "*.exe", null);
+        if (path is null) return;
+        if (Games.Any(g => g.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase))) { Notice = "Этот .exe уже добавлен."; return; }
+        var game = new GameEntry { Name = Path.GetFileNameWithoutExtension(path), ExePath = path, Detail = "Выберите профиль" };
         Games.Add(game); Hook(game); SelectedGame = game; RefreshDisplays(); SaveOnly(); UpdateSummary();
     }
     private void ChooseExe()
     {
         if (SelectedGame is null) { Notice = "Выберите игру."; return; }
-        var dialog = new OpenFileDialog { Title = "Выберите игровой процесс", Filter = "Приложения (*.exe)|*.exe", InitialDirectory = SelectedGame.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) };
-        if (dialog.ShowDialog() != true) return;
-        if (!SelectedGame.ExePath.Equals(dialog.FileName, StringComparison.OrdinalIgnoreCase) &&
+        string? path = SelectLocalFile("Выберите игровой процесс", "*.exe", SelectedGame.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        if (path is null) return;
+        if (!SelectedGame.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase) &&
             _state.Backups.Any(b => b.ExePath.Equals(SelectedGame.ExePath, StringComparison.OrdinalIgnoreCase)))
         {
             Run(() => _sync.Restore(_state, SelectedGame));
             if (SelectedGame.Status == ApplyStatus.Error) { Notice = SelectedGame.Detail; return; }
         }
-        SelectedGame.ExePath = dialog.FileName;
+        SelectedGame.ExePath = path;
         SelectedGame.Status = ApplyStatus.Pending;
         SelectedGame.Detail = "Нужно применить профиль";
         SaveOnly();
+    }
+
+    private string? SelectLocalFile(string title, string pattern, string? initialDirectory)
+    {
+        if (PickLocalFile is not null) return PickLocalFile(title, pattern, initialDirectory);
+        var dialog = new OpenFileDialog
+        {
+            Title = title,
+            Filter = pattern == "*.exe" ? "Приложения (*.exe)|*.exe" : "RTSSHooks64.dll|RTSSHooks64.dll",
+            InitialDirectory = initialDirectory ?? ""
+        };
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
     private void ImportSteam()
     {
@@ -566,17 +708,22 @@ public sealed class MainViewModel : Observable, IDisposable
     {
         if (e.PropertyName is nameof(PerformanceProfile.Name) or nameof(PerformanceProfile.FpsLimit) or
             nameof(PerformanceProfile.FpsMode) or nameof(PerformanceProfile.FpsDivisor) or
-            nameof(PerformanceProfile.Vrr) or nameof(PerformanceProfile.VSync))
+            nameof(PerformanceProfile.Vrr) or nameof(PerformanceProfile.VSync) or
+            nameof(PerformanceProfile.Description))
         {
             if (e.PropertyName == nameof(PerformanceProfile.Name)) ProfileOptions.First(option => option.Id == profile.Id).RefreshName();
-            if (profile == SelectedProfile) UpdateFpsFractions();
-            foreach (var game in Games.Where(g => g.ProfileId == profile.Id)) { game.Status = ApplyStatus.Pending; game.Detail = "Профиль изменён"; }
-            RefreshDisplays();
+            if (e.PropertyName != nameof(PerformanceProfile.Description))
+            {
+                if (profile == SelectedProfile) UpdateFpsFractions();
+                foreach (var game in Games.Where(g => g.ProfileId == profile.Id)) { game.Status = ApplyStatus.Pending; game.Detail = "Профиль изменён"; }
+                RefreshDisplays();
+            }
+            ScheduleSave();
         }
     };
     private void Hook(GameEntry game) => game.PropertyChanged += (_, e) =>
     {
-        if (e.PropertyName == nameof(GameEntry.Name)) UpdateSummary();
+        if (e.PropertyName == nameof(GameEntry.Name)) { UpdateSummary(); ScheduleSave(); }
         if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
         {
             if (e.PropertyName == nameof(GameEntry.ExePath)) game.Icon = null;
@@ -587,7 +734,8 @@ public sealed class MainViewModel : Observable, IDisposable
                     : "Профиль не выбран: параметры не применяются"
                 : "Назначение изменено";
             RefreshDisplays();
-            if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId)) SaveOnly();
+            if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId)) SaveOnly(false);
+            else ScheduleSave();
         }
     };
     private void RefreshDisplays()
@@ -614,9 +762,15 @@ public sealed class MainViewModel : Observable, IDisposable
         Changed(nameof(SelectedProfileFpsDetail));
         UpdateSummary();
     }
-    private void SaveOnly()
+    private void ScheduleSave()
     {
-        try { _store.Save(_state); Notice = "Конфигурация сохранена."; }
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+    private void SaveOnly(bool announce = true)
+    {
+        _saveTimer.Stop();
+        try { _store.Save(_state); if (announce) Notice = "Конфигурация сохранена."; }
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка сохранения: " + ex.Message; }
         UpdateSummary();
     }
@@ -691,18 +845,26 @@ public sealed class MainViewModel : Observable, IDisposable
 public sealed record AttentionItem(string Category, string Title, string Detail, string Advice,
     int PageIndex, string ActionLabel, GameEntry? Game);
 
-public sealed class Command(Action execute) : ICommand
+public sealed class Command(Action execute, Func<bool>? canExecute = null) : ICommand
 {
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-    public bool CanExecute(object? parameter) => true;
-    public void Execute(object? parameter) => execute();
+    public event EventHandler? CanExecuteChanged
+    {
+        add => CommandManager.RequerySuggested += value;
+        remove => CommandManager.RequerySuggested -= value;
+    }
+    public bool CanExecute(object? parameter) => canExecute?.Invoke() ?? true;
+    public void Execute(object? parameter) { if (CanExecute(parameter)) execute(); }
 }
 
-public sealed class ParameterCommand(Action<object?> execute) : ICommand
+public sealed class ParameterCommand(Action<object?> execute, Func<bool>? canExecute = null) : ICommand
 {
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-    public bool CanExecute(object? parameter) => true;
-    public void Execute(object? parameter) => execute(parameter);
+    public event EventHandler? CanExecuteChanged
+    {
+        add => CommandManager.RequerySuggested += value;
+        remove => CommandManager.RequerySuggested -= value;
+    }
+    public bool CanExecute(object? parameter) => canExecute?.Invoke() ?? true;
+    public void Execute(object? parameter) { if (CanExecute(parameter)) execute(parameter); }
 }
 
 public sealed class ModeOption<T>(T value, string label) : Observable

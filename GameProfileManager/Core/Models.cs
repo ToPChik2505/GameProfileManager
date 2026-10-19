@@ -21,6 +21,7 @@ public abstract class Observable : INotifyPropertyChanged
 
 public enum VrrMode { GSync, FixedRefresh }
 public enum FpsLimitMode { Manual, DisplayFraction }
+public enum RtssLimiterMode { Async = 0, FrontEdgeSync = 1, BackEdgeSync = 2, NvidiaReflex = 3 }
 public enum VSyncMode { ApplicationControlled, On, Off }
 public enum ApplyStatus { Pending, Applied, RestartRequired, Unsupported, Error }
 
@@ -134,6 +135,7 @@ public sealed class SettingBackup
 {
     public string ExePath { get; set; } = "";
     public int? RtssFps { get; set; }
+    public int? RtssSyncLimiter { get; set; }
     public bool RtssProfileExisted { get; set; }
     public bool RtssCaptured { get; set; }
     public uint? NvidiaVrr { get; set; }
@@ -156,8 +158,10 @@ public sealed class AppState
     public bool PresetNamesLocalized { get; set; }
     public bool PresetProtectionMigrated { get; set; }
     public string RtssDirectory { get; set; } = "";
+    public RtssLimiterMode RtssLimiterMode { get; set; } = RtssLimiterMode.FrontEdgeSync;
     public bool CheckAtStartup { get; set; } = true;
     public bool MinimizeToTray { get; set; }
+    public string Theme { get; set; } = "Dark";
     public string DefaultDisplayId { get; set; } = "";
     public DateTimeOffset? LastSync { get; set; }
 }

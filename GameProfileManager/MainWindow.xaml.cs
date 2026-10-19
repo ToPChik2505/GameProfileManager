@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using GameProfileManager.Core;
 using Forms = System.Windows.Forms;
 using ComboBox = System.Windows.Controls.ComboBox;
@@ -19,6 +20,10 @@ public partial class MainWindow : Window
 {
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Forms.ContextMenuStrip _trayMenu;
+    private readonly Forms.ToolStripItem _verifyTrayItem;
+    private readonly Forms.ToolStripItem _applyTrayItem;
+    private readonly Forms.ToolStripItem _exitTrayItem;
+    private HwndSource? _windowSource;
     private bool _exitRequested;
     private bool _trayHintShown;
 
@@ -32,21 +37,22 @@ public partial class MainWindow : Window
         DataContext = viewModel ?? new MainViewModel();
         _trayMenu = new Forms.ContextMenuStrip();
         _trayMenu.Items.Add("Открыть", null, (_, _) => Dispatcher.BeginInvoke(RestoreWindow));
-        _trayMenu.Items.Add("Проверить настройки", null, (_, _) => Dispatcher.BeginInvoke(() => ViewModel.VerifyCommand.Execute(null)));
-        _trayMenu.Items.Add("Применить ко всем", null, (_, _) => Dispatcher.BeginInvoke(() => ViewModel.ApplyCommand.Execute(null)));
+        _verifyTrayItem = _trayMenu.Items.Add("Проверить настройки", null, (_, _) => Dispatcher.BeginInvoke(() => ViewModel.VerifyCommand.Execute(null)));
+        _applyTrayItem = _trayMenu.Items.Add("Применить ко всем", null, (_, _) => Dispatcher.BeginInvoke(() => ViewModel.ApplyCommand.Execute(null)));
         _trayMenu.Items.Add(new Forms.ToolStripSeparator());
-        _trayMenu.Items.Add("Выход", null, (_, _) => Dispatcher.BeginInvoke(ExitFromTray));
+        _exitTrayItem = _trayMenu.Items.Add("Выход", null, (_, _) => Dispatcher.BeginInvoke(ExitFromTray));
         var icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ??
             (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
         _trayIcon = new Forms.NotifyIcon
         {
             Icon = icon,
-            Text = "Game Profile Manager",
+            Text = string.Empty,
             ContextMenuStrip = _trayMenu,
             Visible = ViewModel.MinimizeToTray
         };
         _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(RestoreWindow);
         ViewModel.PropertyChanged += ViewModelPropertyChanged;
+        InitializeController();
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;
@@ -55,6 +61,10 @@ public partial class MainWindow : Window
     {
         if (e.PropertyName == nameof(MainViewModel.MinimizeToTray))
             _trayIcon.Visible = ViewModel.MinimizeToTray;
+        if (e.PropertyName == nameof(MainViewModel.Theme))
+            UpdateTitleBarTheme();
+        if (e.PropertyName == nameof(MainViewModel.IsApplyingAll))
+            _verifyTrayItem.Enabled = _applyTrayItem.Enabled = _exitTrayItem.Enabled = !ViewModel.IsApplyingAll;
         if (e.PropertyName == nameof(MainViewModel.Notice) && !IsVisible && ViewModel.MinimizeToTray &&
             (ViewModel.Notice.Contains("RTSS закрыт", StringComparison.OrdinalIgnoreCase) ||
              ViewModel.Notice.Contains("проверьте статусы", StringComparison.OrdinalIgnoreCase)))
@@ -67,6 +77,13 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        if (ViewModel.IsApplyingAll && (_exitRequested || !ViewModel.MinimizeToTray))
+        {
+            e.Cancel = true;
+            _exitRequested = false;
+            ViewModel.Notice = "Применение ещё идёт. Дождитесь завершения обработки игр.";
+            return;
+        }
         if (!_exitRequested && !Dispatcher.HasShutdownStarted && ViewModel.MinimizeToTray)
         {
             e.Cancel = true;
@@ -96,6 +113,24 @@ public partial class MainWindow : Window
         Activate();
     }
 
+    internal void RestoreFromSecondLaunch()
+    {
+        if (!IsVisible || WindowState == WindowState.Minimized) RestoreWindow();
+        if (!Activate())
+        {
+            Topmost = true;
+            Topmost = false;
+            Activate();
+        }
+    }
+
+    private void MinimizeCaption_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void MaximizeCaption_Click(object sender, RoutedEventArgs e) =>
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    private void CloseCaption_Click(object sender, RoutedEventArgs e) => Close();
+
     private void ExitFromTray()
     {
         _exitRequested = true;
@@ -105,12 +140,116 @@ public partial class MainWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        var dark = 1;
+        _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+        _windowSource?.AddHook(WindowMessageHook);
+        UpdateTitleBarTheme();
+    }
+
+    private IntPtr WindowMessageHook(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int wmGetMinMaxInfo = 0x0024;
+        if (message != wmGetMinMaxInfo || lParam == IntPtr.Zero) return IntPtr.Zero;
+
+        IntPtr monitor = MonitorFromWindow(hwnd, 2); // MONITOR_DEFAULTTONEAREST
+        if (monitor == IntPtr.Zero) return IntPtr.Zero;
+        var monitorInfo = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo)) return IntPtr.Zero;
+
+        var bounds = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        bounds.MaxPosition.X = monitorInfo.Work.Left - monitorInfo.Monitor.Left;
+        bounds.MaxPosition.Y = monitorInfo.Work.Top - monitorInfo.Monitor.Top;
+        bounds.MaxSize.X = monitorInfo.Work.Right - monitorInfo.Work.Left;
+        bounds.MaxSize.Y = monitorInfo.Work.Bottom - monitorInfo.Work.Top;
+        Marshal.StructureToPtr(bounds, lParam, false);
+        handled = true;
+        return IntPtr.Zero;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint { public int X; public int Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public NativePoint Reserved;
+        public NativePoint MaxSize;
+        public NativePoint MaxPosition;
+        public NativePoint MinTrackSize;
+        public NativePoint MaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public NativeRect Monitor;
+        public NativeRect Work;
+        public uint Flags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+
+    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    private void UpdateTitleBarTheme()
+    {
+        if (new WindowInteropHelper(this).Handle == IntPtr.Zero) return;
+        var dark = ViewModel.Theme == "Dark" ? 1 : 0;
         DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int));
+        var roundedCorners = 2; // DWMWCP_ROUND on Windows 11
+        DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 33, ref roundedCorners, sizeof(int));
+    }
+
+    private void RootTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source != RootTabs || !SystemParameters.ClientAreaAnimation) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (RootTabs.Template.FindName("PageContent", RootTabs) is not ContentPresenter page) return;
+            page.RenderTransform = new TranslateTransform(0, 8);
+            page.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(170)) { EasingFunction = new QuadraticEase() });
+            ((TranslateTransform)page.RenderTransform).BeginAnimation(TranslateTransform.YProperty,
+                new DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(170)) { EasingFunction = new QuadraticEase() });
+        });
+    }
+
+    private void RootTabs_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (FindParent<ComboBox>(e.OriginalSource as DependencyObject) is not { IsDropDownOpen: false } combo)
+            return;
+
+        // Closed selectors must keep their current value. Let the surrounding page scroll instead.
+        e.Handled = true;
+        if (FindParent<ScrollViewer>(VisualTreeHelper.GetParent(combo)) is { } scroller)
+        {
+            scroller.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+            {
+                RoutedEvent = MouseWheelEvent,
+                Source = scroller
+            });
+        }
+    }
+
+    private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject
+    {
+        for (var node = child; node is not null;
+             node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+            if (node is T result) return result;
+        return null;
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        _windowSource?.RemoveHook(WindowMessageHook);
+        _windowSource = null;
+        DisposeController();
         ViewModel.PropertyChanged -= ViewModelPropertyChanged;
         _trayIcon.Visible = false;
         _trayIcon.Icon?.Dispose();
@@ -169,7 +308,7 @@ public partial class MainWindow : Window
     private void GameDisplay_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { SelectedItem: ModeOption<string> option } && vm.SelectedGame is { } game)
+            sender is ComboBox { DataContext: GameEntry game, SelectedItem: ModeOption<string> option })
             game.DisplayId = option.Value;
     }
 

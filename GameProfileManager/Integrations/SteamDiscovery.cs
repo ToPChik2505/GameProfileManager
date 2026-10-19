@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Security;
 using GameProfileManager.Core;
 using Microsoft.Win32;
 
@@ -82,16 +83,20 @@ public static class SteamDiscovery
 
     private static string? FindSteamDirectory()
     {
-        using var currentUser = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
-        using var localMachine = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Valve\Steam");
         string?[] candidates =
         [
-            currentUser?.GetValue("SteamPath") as string,
-            currentUser?.GetValue("InstallPath") as string,
-            localMachine?.GetValue("InstallPath") as string,
+            ReadRegistryPath(Registry.CurrentUser, @"Software\Valve\Steam", "SteamPath"),
+            ReadRegistryPath(Registry.CurrentUser, @"Software\Valve\Steam", "InstallPath"),
+            ReadRegistryPath(Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam")
         ];
         return candidates.FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(Path.Combine(path, "steamapps")));
+    }
+
+    private static string? ReadRegistryPath(RegistryKey hive, string keyPath, string valueName)
+    {
+        try { using var key = hive.OpenSubKey(keyPath); return key?.GetValue(valueName) as string; }
+        catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException) { return null; }
     }
 
     private static string? FirstValue(IEnumerable<Match> fields, string key)

@@ -8,9 +8,10 @@ public interface IRtssSettings : IDisposable
     bool IsRunning { get; }
     bool ProfileExists(string exeName);
     int? ReadFps(string exeName);
+    int? ReadLimiterMode(string exeName);
     void ProbeWrite(string exeName, int? targetFps);
-    void WriteFps(string exeName, int fps);
-    void Restore(string exeName, bool existed, int? previousFps);
+    void WriteSettings(string exeName, int fps, RtssLimiterMode mode);
+    void Restore(string exeName, bool existed, int? previousFps, int? previousLimiterMode);
 }
 
 public interface INvidiaSettings : IDisposable

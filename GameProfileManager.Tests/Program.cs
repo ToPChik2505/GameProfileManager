@@ -1,3 +1,4 @@
+using GameProfileManager;
 using GameProfileManager.Core;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
@@ -6,9 +7,62 @@ string temp = Path.Combine(Path.GetTempPath(), "gpm-tests-" + Guid.NewGuid().ToS
 try
 {
     Directory.CreateDirectory(temp);
+    var controls = new ControllerActionMapper();
+    static ControllerSnapshot Press(params ControllerButton[] buttons) =>
+        new(buttons.Aggregate(0UL, (mask, button) => mask | 1UL << (int)button));
+    Assert(controls.Update(Press(ControllerButton.South), 0).SequenceEqual([ControllerAction.Accept]) &&
+           controls.Update(Press(ControllerButton.South), 100).Count == 0 &&
+           controls.Update(default, 110).Count == 0 &&
+           controls.Update(Press(ControllerButton.South), 120).SequenceEqual([ControllerAction.Accept]),
+        "accept fires once per press and rearms after release");
+    Assert(controls.Update(new ControllerSnapshot(0, LeftY: -20000), 200).Contains(ControllerAction.Up) &&
+           controls.Update(new ControllerSnapshot(0, LeftY: -20000), 400).Count == 0 &&
+           controls.Update(new ControllerSnapshot(0, LeftY: -20000), 540).Contains(ControllerAction.Up) &&
+           controls.Update(Press(ControllerButton.DpadDown), 600).Contains(ControllerAction.Down),
+        "stick and d-pad navigation repeat while held and change direction immediately");
+    Assert(controls.Update(Press(ControllerButton.LeftShoulder, ControllerButton.RightShoulder), 700)
+               .Contains(ControllerAction.NextPage) &&
+           controls.Update(new ControllerSnapshot(0, RightTrigger: 26000), 710)
+               .Contains(ControllerAction.PageDown),
+        "shoulders switch pages and triggers scroll");
+    var windowControls = new ControllerActionMapper();
+    Assert(windowControls.Update(Press(ControllerButton.North), 800).SequenceEqual([ControllerAction.Tertiary]) &&
+           windowControls.Update(default, 850).Count == 0 &&
+           windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 1000).Count == 0 &&
+           windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 1600).Count == 0 &&
+           windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 1700).SequenceEqual([ControllerAction.ToggleWindow]) &&
+           windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 1800).Count == 0 &&
+           windowControls.Update(default, 1900).Count == 0 &&
+           windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 2000).Count == 0 &&
+           windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 2700).SequenceEqual([ControllerAction.ToggleWindow]),
+        "minimize shortcut and held restore chord fire once until released");
+    Console.WriteLine("PASS Xbox/DualSense action mapping and navigation repeat");
+    string instanceIdentity = "GameProfileManager.Tests." + Guid.NewGuid().ToString("N");
+    using var firstInstance = new SingleInstanceCoordinator(instanceIdentity);
+    int activationSignals = 0;
+    Assert(firstInstance.TryStart(() => Interlocked.Increment(ref activationSignals)),
+        "first instance owns the process mutex");
+    bool secondStarted = true;
+    bool secondSignaled = false;
+    var secondThread = new Thread(() =>
+    {
+        using var secondInstance = new SingleInstanceCoordinator(instanceIdentity);
+        secondStarted = secondInstance.TryStart(() => { });
+        secondSignaled = secondInstance.TrySignalExisting();
+    });
+    secondThread.Start();
+    Assert(secondThread.Join(TimeSpan.FromSeconds(3)) && !secondStarted && secondSignaled &&
+           SpinWait.SpinUntil(() => Volatile.Read(ref activationSignals) > 0, TimeSpan.FromSeconds(3)),
+        "second instance is rejected and signals the first");
+    firstInstance.Dispose();
+    using var restartedInstance = new SingleInstanceCoordinator(instanceIdentity);
+    Assert(restartedInstance.TryStart(() => { }), "mutex is released after the first instance exits");
+    Console.WriteLine("PASS single instance mutex and activation signal");
     var store = new SqliteStateStore(Path.Combine(temp, "db"));
     var state = store.Load();
     Assert(state.Profiles.Count == 3, "three starter profiles");
+    Assert(state.RtssLimiterMode == RtssLimiterMode.FrontEdgeSync && (int)state.RtssLimiterMode == 1,
+        "Front Edge Sync is the default RTSS limiter mode");
     Assert(state.Profiles.All(profile => profile.IsBuiltIn) && state.PresetProtectionMigrated,
         "new starter profiles are protected");
     Assert(state.Profiles.Select(p => p.Name).SequenceEqual(["Кинематографичный", "Сбалансированный", "Соревновательный"]), "starter profile names are Russian");
@@ -33,12 +87,16 @@ try
     cinematic.FpsLimit = 45;
     state.DefaultDisplayId = "display-b";
     state.MinimizeToTray = true;
+    state.Theme = "Light";
+    state.RtssLimiterMode = RtssLimiterMode.BackEdgeSync;
     gameA.DisplayId = "display-a";
     store.Save(state);
     var loaded = store.Load();
     Assert(loaded.Profiles.Single(p => p.Id == cinematic.Id).FpsLimit == 45, "edited profile persists");
     Assert(loaded.Games.Count(g => g.ProfileId == cinematic.Id) == 2, "shared assignment persists");
-    Assert(loaded.DefaultDisplayId == "display-b" && loaded.MinimizeToTray &&
+    Assert(loaded.DefaultDisplayId == "display-b" && loaded.MinimizeToTray && loaded.Theme == "Light" &&
+           loaded.RtssLimiterMode == RtssLimiterMode.BackEdgeSync &&
+           new AppState().Theme == "Dark" &&
            loaded.Games.Single(g => g.Id == gameA.Id).DisplayId == "display-a" &&
            loaded.Profiles.Single(p => p.Id == cinematic.Id).FpsMode == FpsLimitMode.Manual,
         "display selection, tray preference and legacy manual FPS persist");
@@ -138,18 +196,53 @@ try
         result.Games.Add(new GameEntry { Name = "Second", ExePath = exeB, ProfileId = selectedProfile.Id });
         return result;
     }
-    var rtssFake = new FakeRtss { Exists = true, Fps = 45 };
+    var rtssFake = new FakeRtss { Exists = true, Fps = 45, LimiterMode = 0 };
     var nvidiaFake = new FakeNvidia();
     var sync = new SyncService(store, _ => rtssFake, () => nvidiaFake);
     var single = SelectionState();
     sync.ApplyOne(single, single.Games[0]);
     Assert(single.Games[0].Status == ApplyStatus.Applied && single.Games[1].Status == ApplyStatus.Pending,
         "single-game apply leaves other games untouched");
-    Assert(single.Backups.Count == 1 && single.Backups[0].RtssFps == 45 && rtssFake.Fps == 73,
+    Assert(single.Backups.Count == 1 && single.Backups[0].RtssFps == 45 && single.Backups[0].RtssSyncLimiter == 0 &&
+           rtssFake.Fps == 73 && rtssFake.LimiterMode == 1,
         "single-game apply saves original settings before writing");
+    single.RtssLimiterMode = RtssLimiterMode.NvidiaReflex;
+    sync.CheckSaved(single);
+    Assert(single.Games[0].Status == ApplyStatus.Pending, "changing the global RTSS mode makes applied games pending");
+    sync.ApplyOne(single, single.Games[0]);
+    Assert(rtssFake.LimiterMode == 3 && single.Backups[0].RtssSyncLimiter == 0,
+        "new limiter mode is written while the original mode remains in the backup");
     sync.Restore(single, single.Games[0]);
-    Assert(rtssFake.Fps == 45 && !nvidiaFake.ProfileExists && single.Backups.Count == 0,
+    Assert(rtssFake.Fps == 45 && rtssFake.LimiterMode == 0 && !nvidiaFake.ProfileExists && single.Backups.Count == 0,
         "restoring a game returns both integrations to original values");
+
+    var zeroLimitState = SelectionState();
+    zeroLimitState.Games[0].ProfileId = null;
+    zeroLimitState.Backups.Add(new SettingBackup
+    {
+        ExePath = exeA, ManagedGameId = zeroLimitState.Games[0].Id,
+        RtssCaptured = true, RtssProfileExisted = true, RtssFps = 0, RtssSyncLimiter = 1
+    });
+    var removedRtssProfile = new FakeRtss { Exists = false, Fps = 0, LimiterMode = 1 };
+    new SyncService(store, _ => removedRtssProfile, () => new FakeNvidia()).Restore(zeroLimitState, zeroLimitState.Games[0]);
+    Assert(removedRtssProfile.Exists && removedRtssProfile.Fps == 0 && zeroLimitState.Backups.Count == 0 &&
+           zeroLimitState.Games[0].Detail == "Исходные значения восстановлены",
+        "restore recreates a manually deleted RTSS profile with its original unlimited FPS value");
+
+    var legacyBackupState = SelectionState();
+    legacyBackupState.Backups.Add(new SettingBackup
+    {
+        ExePath = exeA, ManagedGameId = legacyBackupState.Games[0].Id,
+        RtssCaptured = true, RtssProfileExisted = true, RtssFps = 45
+    });
+    var legacyRtss = new FakeRtss { Exists = true, Fps = 73, LimiterMode = 2 };
+    var legacySync = new SyncService(store, _ => legacyRtss, () => new FakeNvidia());
+    legacySync.ApplyOne(legacyBackupState, legacyBackupState.Games[0]);
+    Assert(legacyBackupState.Backups[0].RtssFps == 45 && legacyBackupState.Backups[0].RtssSyncLimiter == 2,
+        "legacy backup retains FPS and captures limiter mode before the first new write");
+    legacySync.Restore(legacyBackupState, legacyBackupState.Games[0]);
+    Assert(legacyRtss.Fps == 45 && legacyRtss.LimiterMode == 2 && legacyBackupState.Backups.Count == 0,
+        "legacy backup restores original FPS and captured limiter mode");
 
     var blockedRtss = new FakeRtss { ProbeFailure = true };
     var untouchedNvidia = new FakeNvidia();
@@ -166,18 +259,26 @@ try
     Assert(writableRtss.WriteCalls == 0 && blockedNvidia.ApplyCalls == 0 && nvidiaBlockedState.Backups.Count == 0,
         "NVIDIA preflight failure prevents RTSS changes");
 
-    var rollbackRtss = new FakeRtss { Exists = true, Fps = 45 };
+    var unknownLimiter = new FakeRtss { Exists = true, Fps = 45, LimiterMode = null };
+    var unknownLimiterState = SelectionState();
+    var untouchedForLimiter = new FakeNvidia();
+    new SyncService(store, _ => unknownLimiter, () => untouchedForLimiter).ApplyOne(unknownLimiterState, unknownLimiterState.Games[0]);
+    Assert(unknownLimiterState.Games[0].Status == ApplyStatus.Unsupported && unknownLimiter.WriteCalls == 0 &&
+           untouchedForLimiter.ApplyCalls == 0 && unknownLimiterState.Backups.Count == 0,
+        "unknown original RTSS limiter mode blocks both integrations before writing");
+
+    var rollbackRtss = new FakeRtss { Exists = true, Fps = 45, LimiterMode = 2 };
     var rollbackNvidia = new FakeNvidia { FailAfterApply = true };
     var rollbackState = SelectionState();
     new SyncService(store, _ => rollbackRtss, () => rollbackNvidia).ApplyOne(rollbackState, rollbackState.Games[0]);
-    Assert(rollbackState.Games[0].Status == ApplyStatus.Error && rollbackRtss.Fps == 45 &&
+    Assert(rollbackState.Games[0].Status == ApplyStatus.Error && rollbackRtss.Fps == 45 && rollbackRtss.LimiterMode == 2 &&
            !rollbackNvidia.ProfileExists && rollbackState.Backups.Count == 0,
         "failure during NVIDIA write rolls both integrations back");
-    var failRtss = new FakeRtss { Exists = true, Fps = 45, FailAfterWrite = true };
+    var failRtss = new FakeRtss { Exists = true, Fps = 45, LimiterMode = 2, FailAfterWrite = true };
     var noNvidiaWrite = new FakeNvidia();
     var rtssFailureState = SelectionState();
     new SyncService(store, _ => failRtss, () => noNvidiaWrite).ApplyOne(rtssFailureState, rtssFailureState.Games[0]);
-    Assert(rtssFailureState.Games[0].Status == ApplyStatus.Error && failRtss.Fps == 45 &&
+    Assert(rtssFailureState.Games[0].Status == ApplyStatus.Error && failRtss.Fps == 45 && failRtss.LimiterMode == 2 &&
            noNvidiaWrite.ApplyCalls == 0 && rtssFailureState.Backups.Count == 0,
         "failure during RTSS write rolls it back without touching NVIDIA");
 
@@ -323,21 +424,25 @@ sealed class FakeRtss : IRtssSettings
     public bool Running { get; set; } = true;
     public bool Exists { get; set; }
     public int? Fps { get; set; }
+    public int? LimiterMode { get; set; } = 1;
     public bool ProbeFailure { get; set; }
     public bool FailAfterWrite { get; set; }
     public int WriteCalls { get; private set; }
     public bool ProfileExists(string exeName) => Exists;
     public int? ReadFps(string exeName) => Fps;
+    public int? ReadLimiterMode(string exeName) => LimiterMode;
     public void ProbeWrite(string exeName, int? targetFps)
     {
         if (ProbeFailure) throw new NotSupportedException("RTSS недоступен");
+        if (targetFps is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(targetFps));
     }
-    public void WriteFps(string exeName, int fps)
+    public void WriteSettings(string exeName, int fps, RtssLimiterMode mode)
     {
-        WriteCalls++; Exists = true; Fps = fps;
+        WriteCalls++; Exists = true; Fps = fps; LimiterMode = (int)mode;
         if (FailAfterWrite) throw new InvalidOperationException("Сбой RTSS после записи");
     }
-    public void Restore(string exeName, bool existed, int? previousFps) { Exists = existed; Fps = previousFps; }
+    public void Restore(string exeName, bool existed, int? previousFps, int? previousLimiterMode)
+    { Exists = existed; Fps = previousFps; LimiterMode = previousLimiterMode ?? LimiterMode; }
     public void Dispose() { }
 }
 

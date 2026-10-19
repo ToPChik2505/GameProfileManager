@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using GameProfileManager.Core;
 
 namespace GameProfileManager.Integrations;
 
@@ -58,16 +59,26 @@ public sealed class RtssClient : IRtssSettings
         return _get(Ansi("FramerateLimit"), value, 4) ? BitConverter.ToInt32(value) : null;
     }
 
+    public int? ReadLimiterMode(string exeName)
+    {
+        _load(Ansi(exeName));
+        byte[] value = new byte[4];
+        if (_get(Ansi("SyncLimiter"), value, 4)) return BitConverter.ToInt32(value);
+        int? explicitValue = ReadProfileValue(ProfilePath(exeName), "SyncLimiter");
+        return explicitValue ?? ReadProfileValue(Path.Combine(InstallDirectory, "Profiles", "Global"), "SyncLimiter");
+    }
+
     public void ProbeWrite(string exeName, int? targetFps)
     {
         if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Запустите RTSS перед применением профиля.");
-        if (targetFps is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(targetFps));
+        // An existing RTSS profile may have an unlimited (zero) FPS limit. Preserve it on restore.
+        if (targetFps is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(targetFps));
         string profiles = Path.Combine(InstallDirectory, "Profiles");
         if (!Directory.Exists(profiles)) throw new DirectoryNotFoundException("Папка профилей RTSS не найдена: " + profiles);
 
         string path = ProfilePath(exeName);
         string source = File.Exists(path) ? path : Path.Combine(profiles, "Global");
-        if (targetFps.HasValue && ReadProfileValue(source, "LimitDenominator") is int denominator && denominator != 1)
+        if (targetFps is > 0 && ReadProfileValue(source, "LimitDenominator") is int denominator && denominator != 1)
             throw new NotSupportedException("RTSS использует LimitDenominator ≠ 1; запись FPS заблокирована.");
         if (File.Exists(path))
         {
@@ -80,24 +91,36 @@ public sealed class RtssClient : IRtssSettings
         if (!IsRunning) throw new NotSupportedException("RTSS был закрыт во время проверки. Запустите его снова.");
     }
 
-    public void WriteFps(string exeName, int fps)
+    public void WriteSettings(string exeName, int fps, RtssLimiterMode mode)
+    {
+        if (!Enum.IsDefined(mode)) throw new ArgumentOutOfRangeException(nameof(mode));
+        if (fps is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(fps));
+        WriteCore(exeName, fps, (int)mode);
+    }
+
+    private void WriteCore(string exeName, int fps, int? limiterMode)
     {
         if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Применение остановлено.");
-        if (fps is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(fps));
+        if (fps is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(fps));
         string source = ProfileExists(exeName) ? ProfilePath(exeName) : Path.Combine(InstallDirectory, "Profiles", "Global");
-        if (ReadProfileValue(source, "LimitDenominator") is int denominator && denominator != 1)
+        if (fps > 0 && ReadProfileValue(source, "LimitDenominator") is int denominator && denominator != 1)
             throw new NotSupportedException("RTSS использует LimitDenominator ≠ 1; приложение не будет записывать неверный эффективный FPS.");
         _load(Ansi(exeName));
         if (!_set(Ansi("FramerateLimit"), BitConverter.GetBytes(fps), 4))
             throw new InvalidOperationException("RTSS отклонил запись FramerateLimit.");
+        if (limiterMode.HasValue && !_set(Ansi("SyncLimiter"), BitConverter.GetBytes(limiterMode.Value), 4))
+            throw new InvalidOperationException("RTSS отклонил запись SyncLimiter.");
         _save(Ansi(exeName));
         _update();
         if (!ProfileExists(exeName) || ReadFps(exeName) != fps || ReadProfileValue(ProfilePath(exeName), "Limit") != fps ||
-            ReadProfileValue(ProfilePath(exeName), "LimitDenominator") is int savedDenominator && savedDenominator != 1)
+            fps > 0 && ReadProfileValue(ProfilePath(exeName), "LimitDenominator") is int savedDenominator && savedDenominator != 1)
             throw new InvalidOperationException("RTSS не подтвердил FPS в файле профиля после сохранения. Если RTSS установлен в Program Files, запустите Game Profile Manager от имени администратора при применении профилей.");
+        if (limiterMode.HasValue && (ReadLimiterMode(exeName) != limiterMode.Value ||
+            ReadProfileValue(ProfilePath(exeName), "SyncLimiter") != limiterMode.Value))
+            throw new InvalidOperationException("RTSS не подтвердил режим ограничения кадров в файле профиля после сохранения.");
     }
 
-    public void Restore(string exeName, bool existed, int? previousFps)
+    public void Restore(string exeName, bool existed, int? previousFps, int? previousLimiterMode)
     {
         if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Восстановление остановлено.");
         if (!existed)
@@ -106,7 +129,7 @@ public sealed class RtssClient : IRtssSettings
             if (ProfileExists(exeName)) throw new InvalidOperationException("RTSS не удалил созданный профиль.");
             return;
         }
-        if (previousFps.HasValue) WriteFps(exeName, previousFps.Value);
+        if (previousFps.HasValue) WriteCore(exeName, previousFps.Value, previousLimiterMode);
         else throw new InvalidOperationException("Исходное значение RTSS неизвестно; профиль не изменён.");
     }
 

@@ -68,8 +68,13 @@ public sealed class SyncService
                 {
                     rtssAvailable = true;
                     string exeName = Path.GetFileName(game.ExePath);
-                    rtssMatched = rtss.ProfileExists(exeName) && rtss.ReadFps(exeName) == fps.Fps;
-                    rtssDetail = rtssMatched ? "подтверждён" : "отличается";
+                    bool exists = rtss.ProfileExists(exeName);
+                    bool fpsMatched = exists && rtss.ReadFps(exeName) == fps.Fps;
+                    bool limiterMatched = exists && rtss.ReadLimiterMode(exeName) == (int)state.RtssLimiterMode;
+                    rtssMatched = fpsMatched && limiterMatched;
+                    rtssDetail = rtssMatched ? "лимит FPS и режим подтверждены" : !exists ? "профиль игры отсутствует" :
+                        !fpsMatched && !limiterMatched ? "лимит FPS и режим отличаются" :
+                        !fpsMatched ? "лимит FPS отличается" : "режим лимитера отличается";
                 }
             }
             catch (Exception ex) { rtssDetail = ex.Message; _store.Log(ex); }
@@ -144,6 +149,8 @@ public sealed class SyncService
             else { game.Status = ApplyStatus.Unsupported; game.Detail = fps.Detail; }
             return;
         }
+        if (!Enum.IsDefined(state.RtssLimiterMode))
+        { game.Status = ApplyStatus.Error; game.Detail = "Некорректный режим лимитера RTSS"; return; }
 
         IRtssSettings? rtss = null;
         INvidiaSettings? nvidia = null;
@@ -158,13 +165,16 @@ public sealed class SyncService
             rtss.ProbeWrite(exeName, targetFps);
             bool rtssExisted = rtss.ProfileExists(exeName);
             int? previousFps = rtss.ReadFps(exeName);
+            int? previousLimiterMode = rtss.ReadLimiterMode(exeName);
             if (rtssExisted && previousFps is null)
                 throw new NotSupportedException("Исходный FPS RTSS неизвестен; запись заблокирована.");
+            if (rtssExisted && previousLimiterMode is null)
+                throw new NotSupportedException("Исходный режим лимитера RTSS неизвестен; запись заблокирована.");
 
             nvidia = _nvidiaFactory();
             nvidia.ProbeWrite();
             var previousNvidia = nvidia.Read(game.ExePath);
-            snapshot = Snapshot(game, rtssExisted, previousFps, previousNvidia);
+            snapshot = Snapshot(game, rtssExisted, previousFps, previousLimiterMode, previousNvidia);
 
             backup = state.Backups.FirstOrDefault(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase));
             if (backup is null)
@@ -174,11 +184,13 @@ public sealed class SyncService
                 createdBackup = true;
             }
             if (!backup.RtssCaptured) CopyRtss(snapshot, backup);
+            else if (backup.RtssProfileExisted && backup.RtssSyncLimiter is null)
+                backup.RtssSyncLimiter = previousLimiterMode; // Existing backups predate this setting.
             if (!backup.NvidiaCaptured) CopyNvidia(snapshot, backup);
             _store.Save(state); // Both original values are durable before either integration is changed.
 
             rtssAttempted = true;
-            rtss.WriteFps(exeName, targetFps);
+            rtss.WriteSettings(exeName, targetFps, state.RtssLimiterMode);
             nvidiaAttempted = true;
             nvidia.Apply(game, profile);
 
@@ -217,6 +229,7 @@ public sealed class SyncService
         {
             bool rtssExisted = false;
             int? currentFps = null;
+            int? currentLimiterMode = null;
             (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) currentNvidia = default;
             string exeName = Path.GetFileName(game.ExePath);
             if (backup.RtssCaptured)
@@ -227,8 +240,11 @@ public sealed class SyncService
                 rtss.ProbeWrite(exeName, backup.RtssProfileExisted ? backup.RtssFps : null);
                 rtssExisted = rtss.ProfileExists(exeName);
                 currentFps = rtss.ReadFps(exeName);
+                currentLimiterMode = rtss.ReadLimiterMode(exeName);
                 if (rtssExisted && currentFps is null)
                     throw new NotSupportedException("Текущий FPS RTSS неизвестен; откат восстановления невозможен.");
+                if (rtssExisted && currentLimiterMode is null)
+                    throw new NotSupportedException("Текущий режим лимитера RTSS неизвестен; откат восстановления невозможен.");
             }
             if (backup.NvidiaCaptured)
             {
@@ -236,11 +252,11 @@ public sealed class SyncService
                 nvidia.ProbeWrite();
                 currentNvidia = nvidia.Read(game.ExePath);
             }
-            snapshot = Snapshot(game, rtssExisted, currentFps, currentNvidia);
+            snapshot = Snapshot(game, rtssExisted, currentFps, currentLimiterMode, currentNvidia);
             if (backup.RtssCaptured)
             {
                 rtssAttempted = true;
-                rtss!.Restore(exeName, backup.RtssProfileExisted, backup.RtssFps);
+                rtss!.Restore(exeName, backup.RtssProfileExisted, backup.RtssFps, backup.RtssSyncLimiter);
             }
             if (backup.NvidiaCaptured)
             {
@@ -279,19 +295,19 @@ public sealed class SyncService
         }
         if (rtssAttempted && rtss is not null)
         {
-            try { rtss.Restore(Path.GetFileName(exePath), snapshot.RtssProfileExisted, snapshot.RtssFps); }
+            try { rtss.Restore(Path.GetFileName(exePath), snapshot.RtssProfileExisted, snapshot.RtssFps, snapshot.RtssSyncLimiter); }
             catch (Exception ex) { errors.Add("RTSS: " + ex.Message); _store.Log(ex); }
         }
         return errors;
     }
 
-    private static SettingBackup Snapshot(GameEntry game, bool rtssExisted, int? rtssFps,
+    private static SettingBackup Snapshot(GameEntry game, bool rtssExisted, int? rtssFps, int? rtssLimiterMode,
         (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) nvidia)
     {
         return new SettingBackup
         {
             ExePath = game.ExePath, ManagedGameId = game.Id,
-            RtssProfileExisted = rtssExisted, RtssFps = rtssFps, RtssCaptured = true,
+            RtssProfileExisted = rtssExisted, RtssFps = rtssFps, RtssSyncLimiter = rtssLimiterMode, RtssCaptured = true,
             NvidiaProfileExisted = nvidia.ProfileExisted, NvidiaVrr = nvidia.Vrr, NvidiaVrrExplicit = nvidia.VrrExplicit,
             NvidiaVSync = nvidia.VSync, NvidiaVSyncExplicit = nvidia.VSyncExplicit,
             NvidiaFpsLimit = nvidia.Fps, NvidiaFpsLimitExplicit = nvidia.FpsExplicit, NvidiaCaptured = true
@@ -302,6 +318,7 @@ public sealed class SyncService
     {
         target.RtssProfileExisted = source.RtssProfileExisted;
         target.RtssFps = source.RtssFps;
+        target.RtssSyncLimiter = source.RtssSyncLimiter;
         target.RtssCaptured = true;
     }
 

@@ -23,7 +23,7 @@ catch (Exception ex) { Console.WriteLine("NVIDIA error: " + ex); }
 try
 {
     using var rtss = new RtssClient(null);
-    Console.WriteLine($"RTSS installed: {rtss.InstallDirectory}, Notepad profile: {rtss.ProfileExists("notepad.exe")}, FPS: {rtss.ReadFps("notepad.exe")}");
+    Console.WriteLine($"RTSS installed: {rtss.InstallDirectory}, Notepad profile: {rtss.ProfileExists("notepad.exe")}, FPS: {rtss.ReadFps("notepad.exe")}, limiter mode: {rtss.ReadLimiterMode("notepad.exe")}");
 }
 catch (Exception ex) { Console.WriteLine("RTSS error: " + ex); }
 if (args.Contains("--write-test"))
@@ -35,12 +35,12 @@ if (args.Contains("--write-test"))
     if (existed) throw new InvalidOperationException("Smoke profile already exists; refusing to modify it.");
     try
     {
-        rtss.WriteFps(name, 37);
-        Console.WriteLine($"RTSS write/read: {rtss.ReadFps(name)}");
+        rtss.WriteSettings(name, 37, RtssLimiterMode.FrontEdgeSync);
+        Console.WriteLine($"RTSS write/read: {rtss.ReadFps(name)}, limiter mode: {rtss.ReadLimiterMode(name)}");
     }
     finally
     {
-        rtss.Restore(name, existed, previous);
+        rtss.Restore(name, existed, previous, null);
         Console.WriteLine($"RTSS profile removed: {!rtss.ProfileExists(name)}");
     }
 }

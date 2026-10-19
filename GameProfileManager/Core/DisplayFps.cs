@@ -22,7 +22,7 @@ public sealed record DisplayInfo(
         ? nominal.ToString(CultureInfo.InvariantCulture) + " Гц"
         : SignalRefreshLabel;
     public string RefreshPrecisionNote => NominalRefreshHz is int nominal && RefreshHz != nominal
-        ? $"Сигнал: {SignalRefreshLabel}. Для долей используется номинальная частота {nominal} Гц."
+        ? $"Сигнал: {SignalRefreshLabel}. Доли FPS считаются по {nominal} Гц."
         : RefreshHz != decimal.Truncate(RefreshHz)
             ? "Windows может показывать округлённую частоту; здесь указана частота сигнала."
             : "";

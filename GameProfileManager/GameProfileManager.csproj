@@ -12,5 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\app-icon.png" />
+    <Content Include="Native\SDL3.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="SDL3.dll" />
+    <None Include="Native\SDL3-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="SDL3-LICENSE.txt" />
   </ItemGroup>
 </Project>
