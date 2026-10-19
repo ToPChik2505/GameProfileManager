@@ -4,7 +4,7 @@ using GameProfileManager.Core;
 namespace GameProfileManager.Integrations;
 
 // DRS layout and QueryInterface IDs are from NVIDIA's public NVAPI headers.
-public sealed class NvidiaClient : IDisposable
+public sealed class NvidiaClient : INvidiaSettings
 {
     public const uint VrrId = 0x10A879CF;
     public const uint VSyncId = 0x00A879CF;
@@ -72,6 +72,12 @@ public sealed class NvidiaClient : IDisposable
         return (true, vrr.Value, vrr.Explicit, vsync.Value, vsync.Explicit, fps.Value, fps.Explicit);
     }
 
+    public void ProbeWrite()
+    {
+        using var session = OpenSession();
+        Check(_saveSettings(session.Handle), "NvAPI_DRS_SaveSettings (проверка доступа)");
+    }
+
     public void Apply(GameEntry game, PerformanceProfile desired)
     {
         using (var session = OpenSession())
@@ -111,7 +117,9 @@ public sealed class NvidiaClient : IDisposable
             Check(_saveSettings(session.Handle), "NvAPI_DRS_SaveSettings");
         }
         var read = Read(exePath);
-        if ((backup.NvidiaVrrExplicit && read.Vrr != backup.NvidiaVrr) ||
+        if (!read.ProfileExisted || read.VrrExplicit != backup.NvidiaVrrExplicit ||
+            read.VSyncExplicit != backup.NvidiaVSyncExplicit || read.FpsExplicit != backup.NvidiaFpsLimitExplicit ||
+            (backup.NvidiaVrrExplicit && read.Vrr != backup.NvidiaVrr) ||
             (backup.NvidiaVSyncExplicit && read.VSync != backup.NvidiaVSync) ||
             (backup.NvidiaFpsLimitExplicit && read.Fps != backup.NvidiaFpsLimit))
             throw new InvalidOperationException("NVIDIA DRS не подтвердил восстановление.");

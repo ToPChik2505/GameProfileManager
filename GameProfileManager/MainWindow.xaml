@@ -15,6 +15,39 @@
       <Setter Property="CornerRadius" Value="15"/>
       <Setter Property="Padding" Value="22"/>
     </Style>
+    <Style x:Key="NavCard" TargetType="Button">
+      <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}"/>
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Padding" Value="22"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="15" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#1D2D37"/><Setter TargetName="Chrome" Property="BorderBrush" Value="#698A62"/></Trigger>
+              <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBrush}"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="HeroCard" TargetType="Border">
+      <Setter Property="BorderBrush" Value="#3A5141"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="19"/>
+      <Setter Property="Padding" Value="29"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/></Trigger></Style.Triggers>
+    </Style>
     <Style x:Key="Eyebrow" TargetType="TextBlock">
       <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
       <Setter Property="FontSize" Value="11"/>
@@ -84,7 +117,7 @@
     </Style>
   </Window.Resources>
 
-  <TabControl BorderThickness="0" Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}" ItemContainerStyle="{StaticResource NavTab}" TabStripPlacement="Left">
+  <TabControl x:Name="RootTabs" BorderThickness="0" Background="{StaticResource BackgroundBrush}" Foreground="{StaticResource TextBrush}" ItemContainerStyle="{StaticResource NavTab}" TabStripPlacement="Left">
     <TabControl.Template>
       <ControlTemplate TargetType="TabControl">
         <Grid Background="{TemplateBinding Background}">
@@ -110,7 +143,7 @@
             </DockPanel>
           </Border>
           <Grid Grid.Column="1">
-            <Grid.RowDefinitions><RowDefinition Height="76"/><RowDefinition Height="*"/><RowDefinition Height="54"/></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="76"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="54"/></Grid.RowDefinitions>
             <Border Grid.Row="0" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="32,0">
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -125,8 +158,24 @@
                 </StackPanel>
               </Grid>
             </Border>
-            <ContentPresenter Grid.Row="1" ContentSource="SelectedContent" Margin="32,24,32,20"/>
-            <Border Grid.Row="2" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="32,0">
+            <Border Grid.Row="1" Background="#382D24" BorderBrush="#7F603B" BorderThickness="0,0,0,1" Padding="32,12">
+              <Border.Style>
+                <Style TargetType="Border">
+                  <Setter Property="Visibility" Value="Collapsed"/>
+                  <Style.Triggers><DataTrigger Binding="{Binding RtssWarningVisible}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                </Style>
+              </Border.Style>
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                  <TextBlock Text="RTSS требует внимания" Foreground="#FFD5A4" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding RtssWarning}" Foreground="#E9D3BB" FontSize="12" TextWrapping="Wrap" Margin="0,3,14,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="Запустить RTSS" Command="{Binding StartRtssCommand}" VerticalAlignment="Center"/>
+              </Grid>
+            </Border>
+            <ContentPresenter Grid.Row="2" ContentSource="SelectedContent" Margin="32,24,32,20"/>
+            <Border Grid.Row="3" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="32,0">
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
                 <Ellipse Width="7" Height="7" Fill="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,11,0"/>
@@ -141,7 +190,7 @@
     <TabItem Header="Обзор" Tag="01">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
-          <Border CornerRadius="19" BorderBrush="#3A5141" BorderThickness="1" Padding="29" Margin="0,0,0,20">
+          <Border x:Name="OverviewHeroCard" Style="{StaticResource HeroCard}" Margin="0,0,0,20" MouseLeftButtonUp="HeroCard_Click" KeyDown="HeroCard_KeyDown" Focusable="True" ToolTip="Открыть библиотеку игр">
             <Border.Background>
               <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                 <GradientStop Color="#233A2C" Offset="0"/>
@@ -168,32 +217,46 @@
               </Grid>
             </Grid>
           </Border>
+          <Button x:Name="OverviewScreenCard" Style="{StaticResource NavCard}" Margin="0,0,0,19" Padding="24,19" Click="OpenScreen_Click" ToolTip="Открыть сведения об экранах">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="{Binding OverviewDisplayHeading}" Style="{StaticResource Eyebrow}"/>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,4">
+                  <TextBlock Text="{Binding OverviewDisplayTitle}" FontSize="19" FontWeight="SemiBold" Margin="0,0,16,0"/>
+                  <TextBlock Text="{Binding OverviewDisplayRate}" Foreground="{StaticResource AccentBrush}" FontSize="18" FontWeight="SemiBold"/>
+                </StackPanel>
+                <TextBlock Text="{Binding OverviewDisplayDescription}" Style="{StaticResource Muted}" FontSize="12"/>
+              </StackPanel>
+              <TextBlock Grid.Column="1" Text="Подробнее →" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="18,0,0,0"/>
+            </Grid>
+          </Button>
           <UniformGrid Columns="3" Margin="0,0,-15,19">
-            <Border Style="{StaticResource Card}" Margin="0,0,15,0">
+            <Button x:Name="OverviewGamesCard" Style="{StaticResource NavCard}" Margin="0,0,15,0" Click="OpenGames_Click" ToolTip="Открыть библиотеку игр">
               <StackPanel>
                 <TextBlock Text="ИГРЫ В БИБЛИОТЕКЕ" Style="{StaticResource Eyebrow}"/>
-                <TextBlock Text="{Binding GameCount}" FontSize="39" FontWeight="SemiBold" Margin="0,13,0,1"/>
-                <TextBlock Text="Добавленные .exe и игры Steam" Style="{StaticResource Muted}" FontSize="12"/>
+                <TextBlock Text="{Binding GameCount}" Foreground="{StaticResource AccentBrush}" FontSize="39" FontWeight="SemiBold" Margin="0,13,0,1"/>
+                <TextBlock Text="Игры Steam, EGS и добавленные .exe" Style="{StaticResource Muted}" FontSize="12"/>
               </StackPanel>
-            </Border>
-            <Border Style="{StaticResource Card}" Margin="0,0,15,0">
+            </Button>
+            <Button x:Name="OverviewProfilesCard" Style="{StaticResource NavCard}" Margin="0,0,15,0" Click="OpenProfiles_Click" ToolTip="Открыть профили">
               <StackPanel>
                 <TextBlock Text="ПРОФИЛИ" Style="{StaticResource Eyebrow}"/>
-                <TextBlock Text="{Binding ProfileCount}" FontSize="39" FontWeight="SemiBold" Margin="0,13,0,1"/>
+                <TextBlock Text="{Binding ProfileCount}" Foreground="{StaticResource AccentBrush}" FontSize="39" FontWeight="SemiBold" Margin="0,13,0,1"/>
                 <TextBlock Text="Общие наборы настроек" Style="{StaticResource Muted}" FontSize="12"/>
               </StackPanel>
-            </Border>
-            <Border Style="{StaticResource Card}" Margin="0,0,15,0">
+            </Button>
+            <Button x:Name="OverviewAttentionCard" Style="{StaticResource NavCard}" Margin="0,0,15,0" Click="OpenAttention_Click" ToolTip="Открыть список задач и ошибок">
               <StackPanel>
                 <TextBlock Text="ТРЕБУЮТ ВНИМАНИЯ" Style="{StaticResource Eyebrow}"/>
-                <TextBlock Text="{Binding ErrorCount}" FontSize="39" FontWeight="SemiBold" Margin="0,13,0,1"/>
-                <TextBlock Text="Ошибки и ограничения" Style="{StaticResource Muted}" FontSize="12"/>
+                <TextBlock Text="{Binding ErrorCount}" Foreground="{StaticResource AccentBrush}" FontSize="39" FontWeight="SemiBold" Margin="0,13,0,1"/>
+                <TextBlock Text="Задачи и ограничения" Style="{StaticResource Muted}" FontSize="12"/>
               </StackPanel>
-            </Border>
+            </Button>
           </UniformGrid>
           <Grid Margin="0,0,0,16">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="16"/><ColumnDefinition/></Grid.ColumnDefinitions>
-            <Border Style="{StaticResource Card}">
+            <Button x:Name="OverviewIntegrationsCard" Style="{StaticResource NavCard}" Click="OpenSettings_Click" ToolTip="Открыть настройки интеграций">
               <StackPanel>
                 <TextBlock Text="ИНТЕГРАЦИИ" Style="{StaticResource Eyebrow}" Margin="0,0,0,20"/>
                 <TextBlock Text="NVIDIA" FontWeight="SemiBold" FontSize="15"/>
@@ -202,8 +265,8 @@
                 <TextBlock Text="RivaTuner Statistics Server" FontWeight="SemiBold" FontSize="15"/>
                 <TextBlock Text="{Binding RtssStatus}" Style="{StaticResource Muted}" Margin="0,5,0,0"/>
               </StackPanel>
-            </Border>
-            <Border Grid.Column="2" Style="{StaticResource Card}">
+            </Button>
+            <Button x:Name="OverviewHowCard" Grid.Column="2" Style="{StaticResource NavCard}" Click="OpenGames_Click" ToolTip="Открыть библиотеку игр">
               <StackPanel>
                 <TextBlock Text="КАК ЭТО РАБОТАЕТ" Style="{StaticResource Eyebrow}" Margin="0,0,0,20"/>
                 <TextBlock Text="1   Создайте или выберите профиль" FontWeight="SemiBold" Margin="0,0,0,13"/>
@@ -212,15 +275,77 @@
                 <TextBlock Text="Последняя синхронизация" Style="{StaticResource Muted}" FontSize="12"/>
                 <TextBlock Text="{Binding LastSync}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" Margin="0,4,0,0"/>
               </StackPanel>
-            </Border>
+            </Button>
           </Grid>
           <TextBlock Text="Статус «Применён» подтверждает сохранённые значения. Фактическую активацию VRR во время игры приложение не измеряет." Style="{StaticResource Muted}" FontSize="11" Margin="2,0,0,3"/>
         </StackPanel>
       </ScrollViewer>
     </TabItem>
 
-    <TabItem Header="Мои игры" Tag="02">
+    <TabItem Header="Экран" Tag="02">
       <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,22">
+          <TextBlock Text="МОНИТОРЫ WINDOWS" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
+          <TextBlock Text="Экран" Style="{StaticResource PageTitle}"/>
+          <TextBlock Text="Текущая частота и экран, по которому рассчитывается доля FPS." Style="{StaticResource Muted}" Margin="0,5,0,0"/>
+        </StackPanel>
+        <Grid Grid.Row="1">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="280"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <Border Style="{StaticResource Card}" Padding="16" Grid.Column="0">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Top" Margin="5,3,0,17">
+                <TextBlock Text="АКТИВНЫЕ ЭКРАНЫ" Style="{StaticResource Eyebrow}"/>
+                <TextBlock Text="{Binding DisplayStatus}" Style="{StaticResource Muted}" FontSize="11" Margin="0,6,0,0"/>
+              </StackPanel>
+              <ListBox ItemsSource="{Binding Displays}" SelectedItem="{Binding SelectedDisplay}" ItemContainerStyle="{StaticResource ProfileItem}" Background="Transparent" BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel>
+                      <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                      <TextBlock Text="{Binding Description}" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+          </Border>
+          <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+              <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                <StackPanel>
+                  <TextBlock Text="ВЫБРАННЫЙ МОНИТОР" Style="{StaticResource Eyebrow}" Margin="0,0,0,8"/>
+                  <TextBlock Text="{Binding SelectedDisplay.Name, TargetNullValue=Экран не обнаружен}" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,20"/>
+                  <UniformGrid Columns="2">
+                    <StackPanel Margin="0,0,12,18"><TextBlock Text="РАЗРЕШЕНИЕ" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding SelectedDisplay.ResolutionLabel, TargetNullValue=—}" FontSize="19" FontWeight="SemiBold"/></StackPanel>
+                    <StackPanel Margin="0,0,0,18"><TextBlock Text="ЧАСТОТА WINDOWS" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding SelectedDisplay.RefreshLabel, TargetNullValue=—}" Foreground="{StaticResource AccentBrush}" FontSize="19" FontWeight="SemiBold"/><TextBlock Text="{Binding SelectedDisplay.RefreshPrecisionNote}" Style="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" MaxWidth="280" Margin="0,5,0,0"/></StackPanel>
+                    <StackPanel Margin="0,0,12,0"><TextBlock Text="ПОДКЛЮЧЕНИЕ" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding SelectedDisplay.Connection, TargetNullValue=—}" FontSize="14"/></StackPanel>
+                    <StackPanel><TextBlock Text="ЦВЕТ" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding SelectedDisplay.ColorLabel, TargetNullValue=—}" FontSize="14"/></StackPanel>
+                    <StackPanel Margin="0,18,12,0"><TextBlock Text="РОЛЬ" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding SelectedDisplay.RoleLabel, TargetNullValue=—}" FontSize="14"/></StackPanel>
+                    <StackPanel Margin="0,18,0,0"><TextBlock Text="ДИНАМИЧЕСКАЯ ЧАСТОТА" Style="{StaticResource FieldLabel}"/><TextBlock Text="{Binding SelectedDisplay.DynamicRefreshLabel, TargetNullValue=—}" FontSize="14"/></StackPanel>
+                  </UniformGrid>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Card}">
+                <StackPanel>
+                  <TextBlock Text="РАСЧЁТ FPS" Style="{StaticResource Eyebrow}" Margin="0,0,0,9"/>
+                  <TextBlock Text="Экран по умолчанию" Style="{StaticResource FieldLabel}"/>
+                  <ComboBox x:Name="DefaultDisplayMenu" ItemsSource="{Binding DefaultDisplayOptions}" SelectedValuePath="Value" SelectedValue="{Binding DefaultDisplayId, Mode=OneWay}" SelectionChanged="DefaultDisplay_SelectionChanged" Margin="0,0,0,12">
+                    <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <TextBlock Text="Для отдельной игры экран можно переопределить в разделе «Мои игры». Доли FPS считаются по номинальной частоте: очень небольшое отклонение сигнала от целого значения допускается и показывается выше." Style="{StaticResource Muted}" FontSize="12" Margin="0,0,0,11"/>
+                  <TextBlock Text="При изменении частоты новые лимиты применяются, пока приложение работает. Динамическая частота Windows для автоматического расчёта не поддерживается." Style="{StaticResource Muted}" FontSize="12"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Grid>
+    </TabItem>
+
+    <TabItem Header="Мои игры" Tag="03">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <Grid MinHeight="620" Height="{Binding ActualHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid Grid.Row="0" Margin="0,0,0,22">
           <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -231,6 +356,7 @@
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
             <Button Content="Импорт Steam" Command="{Binding ImportSteamCommand}" Margin="0,0,8,0"/>
+            <Button Content="Импорт EGS" Command="{Binding ImportEpicCommand}" Margin="0,0,8,0"/>
             <Button Content="+ Добавить .exe" Style="{StaticResource PrimaryButton}" Command="{Binding AddGameCommand}"/>
           </StackPanel>
         </Grid>
@@ -290,7 +416,7 @@
                   </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="FPS" IsReadOnly="True" Width="76">
+              <DataGridTemplateColumn Header="FPS" IsReadOnly="True" Width="96">
                 <DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding FpsDisplay}" VerticalAlignment="Center" HorizontalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
               <DataGridTemplateColumn Header="СТАТУС" IsReadOnly="True" Width="150">
@@ -312,11 +438,20 @@
                   </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="ДЕЙСТВИЕ" IsReadOnly="True" Width="118">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <Button Content="Применить" Command="{Binding DataContext.ApplyGameCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                            CommandParameter="{Binding}" Height="32" MinHeight="32" Padding="8,4" Margin="5,0,7,0" VerticalAlignment="Center"
+                            ToolTip="Применить профиль только к этой игре"/>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
             </DataGrid.Columns>
           </DataGrid>
           <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
             <TextBlock Text="Здесь пока нет игр" FontSize="19" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-            <TextBlock Text="Импортируйте библиотеку Steam или добавьте игровой .exe вручную." Style="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,7,0,0"/>
+            <TextBlock Text="Импортируйте игры Steam и EGS или добавьте игровой .exe вручную." Style="{StaticResource Muted}" HorizontalAlignment="Center" Margin="0,7,0,0"/>
             <StackPanel.Style>
               <Style TargetType="StackPanel">
                 <Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=GamesGrid}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
@@ -332,6 +467,7 @@
             </Style>
           </Border.Style>
           <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <Grid.ColumnDefinitions><ColumnDefinition Width="210"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <StackPanel>
               <TextBlock Text="НАЗВАНИЕ ИГРЫ" Style="{StaticResource Eyebrow}" Margin="0,0,0,9"/>
@@ -357,12 +493,27 @@
               <Button Content="Восстановить" Command="{Binding RestoreCommand}" IsEnabled="{Binding SelectedGameHasBackup}" Margin="0,0,7,0"/>
               <Button Content="Удалить" Style="{StaticResource DangerButton}" Command="{Binding RemoveGameCommand}"/>
             </StackPanel>
+            <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,18,0,0">
+              <Border Height="1" Background="{StaticResource StrokeBrush}" Margin="0,0,0,14"/>
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="210"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <StackPanel>
+                  <TextBlock Text="ЭКРАН ДЛЯ РАСЧЁТА FPS" Style="{StaticResource Eyebrow}" Margin="0,0,0,6"/>
+                  <TextBlock Text="Переопределение для игры" Style="{StaticResource Muted}" FontSize="11"/>
+                </StackPanel>
+                <ComboBox x:Name="GameDisplayMenu" Grid.Column="1" ItemsSource="{Binding GameDisplayOptions}" SelectedValuePath="Value"
+                          SelectedValue="{Binding SelectedGame.DisplayId, Mode=OneWay}" SelectionChanged="GameDisplay_SelectionChanged" MinWidth="250">
+                  <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+              </Grid>
+            </StackPanel>
           </Grid>
         </Border>
       </Grid>
+      </ScrollViewer>
     </TabItem>
 
-    <TabItem Header="Профили" Tag="03">
+    <TabItem Header="Профили" Tag="04">
       <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <Grid Grid.Row="0" Margin="0,0,0,22">
@@ -382,14 +533,17 @@
                 <TextBlock Text="ВАШИ ПРОФИЛИ" Style="{StaticResource Eyebrow}"/>
                 <TextBlock Text="{Binding ProfileCount, StringFormat='Всего: {0}'}" Style="{StaticResource Muted}" FontSize="11" Margin="0,5,0,0"/>
               </StackPanel>
-              <Button DockPanel.Dock="Bottom" Content="Удалить выбранный" Style="{StaticResource DangerButton}" Command="{Binding RemoveProfileCommand}" Margin="0,15,0,0"/>
+              <Button DockPanel.Dock="Bottom" Content="Удалить выбранный" Style="{StaticResource DangerButton}" Command="{Binding RemoveProfileCommand}" IsEnabled="{Binding SelectedProfileIsEditable}" Margin="0,15,0,0"/>
               <ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" ItemContainerStyle="{StaticResource ProfileItem}" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                 <ListBox.ItemTemplate>
                   <DataTemplate>
                     <StackPanel>
                       <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                      <TextBlock Text="СТАНДАРТНЫЙ ПРОФИЛЬ" Foreground="{StaticResource AccentBrush}" FontSize="10" FontWeight="SemiBold" Margin="0,4,0,0">
+                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding IsBuiltIn}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                      </TextBlock>
                       <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
-                        <TextBlock Text="{Binding FpsLimit, StringFormat='{}{0} FPS'}" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding FpsPreview}" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold"/>
                         <TextBlock Text="  ·  " Foreground="{StaticResource MutedBrush}" FontSize="11"/>
                         <TextBlock Text="{Binding VrrDisplay}" Foreground="{StaticResource MutedBrush}" FontSize="11"/>
                       </StackPanel>
@@ -404,28 +558,42 @@
               <StackPanel>
                 <TextBlock Text="РЕДАКТОР ПРОФИЛЯ" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
                 <TextBlock Text="{Binding SelectedProfile.Name, TargetNullValue=Выберите профиль}" FontSize="25" FontWeight="SemiBold" Margin="0,0,0,5"/>
-                <TextBlock Text="Параметры применятся ко всем играм, которым назначен этот профиль." Style="{StaticResource Muted}" Margin="0,0,0,29"/>
+                <TextBlock Text="{Binding SelectedProfileHelp}" Style="{StaticResource Muted}" Margin="0,0,0,15"/>
+                <Button Content="Создать копию профиля" Command="{Binding DuplicateProfileCommand}" HorizontalAlignment="Left" Margin="0,0,0,24"/>
                 <TextBlock Text="Название" Style="{StaticResource FieldLabel}"/>
-                <TextBox Text="{Binding SelectedProfile.Name, UpdateSourceTrigger=LostFocus}" Margin="0,0,0,19"/>
-                <Grid Margin="0,0,0,19">
+                <TextBox Text="{Binding SelectedProfile.Name, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding SelectedProfileIsEditable}" Margin="0,0,0,19"/>
+                <Grid IsEnabled="{Binding SelectedProfileIsEditable}" Margin="0,0,0,19">
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                   <StackPanel>
-                    <TextBlock Text="Лимит FPS" Style="{StaticResource FieldLabel}"/>
-                    <TextBox Text="{Binding SelectedProfile.FpsLimit, UpdateSourceTrigger=LostFocus}"/>
+                    <TextBlock Text="Способ задания FPS" Style="{StaticResource FieldLabel}"/>
+                    <ComboBox x:Name="FpsModeMenu" ItemsSource="{Binding FpsModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.FpsMode, Mode=TwoWay}">
+                      <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                    </ComboBox>
                   </StackPanel>
                   <StackPanel Grid.Column="2">
                     <TextBlock Text="Технология монитора" Style="{StaticResource FieldLabel}"/>
-                    <ComboBox ItemsSource="{Binding VrrModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.Vrr, Mode=TwoWay}">
+                    <ComboBox x:Name="VrrMenu" ItemsSource="{Binding VrrModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.Vrr, Mode=TwoWay}">
                       <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
                     </ComboBox>
                   </StackPanel>
                 </Grid>
+                <TextBlock Text="Лимит FPS" Style="{StaticResource FieldLabel}"/>
+                <Grid IsEnabled="{Binding SelectedProfileIsEditable}" Margin="0,0,0,5">
+                  <TextBox x:Name="ManualFpsInput" Text="{Binding SelectedProfile.FpsLimit, UpdateSourceTrigger=LostFocus}">
+                    <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Style.Triggers><DataTrigger Binding="{Binding SelectedProfile.FpsMode}" Value="DisplayFraction"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBox.Style>
+                  </TextBox>
+                  <ComboBox x:Name="FractionMenu" ItemsSource="{Binding FpsFractions}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.FpsDivisor, Mode=OneWay}" SelectionChanged="Fraction_SelectionChanged">
+                    <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                    <ComboBox.Style><Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding SelectedProfile.FpsMode}" Value="DisplayFraction"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></ComboBox.Style>
+                  </ComboBox>
+                </Grid>
+                <TextBlock Text="{Binding SelectedProfileFpsDetail}" Style="{StaticResource Muted}" FontSize="11" Margin="0,0,0,19"/>
                 <TextBlock Text="Вертикальная синхронизация" Style="{StaticResource FieldLabel}"/>
-                <ComboBox ItemsSource="{Binding VSyncModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.VSync, Mode=TwoWay}" Margin="0,0,0,19">
+                <ComboBox x:Name="VSyncMenu" IsEnabled="{Binding SelectedProfileIsEditable}" ItemsSource="{Binding VSyncModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.VSync, Mode=TwoWay}" Margin="0,0,0,19">
                   <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
                 </ComboBox>
                 <TextBlock Text="Описание" Style="{StaticResource FieldLabel}"/>
-                <TextBox Text="{Binding SelectedProfile.Description, UpdateSourceTrigger=LostFocus}"/>
+                <TextBox Text="{Binding SelectedProfile.Description, UpdateSourceTrigger=LostFocus}" IsEnabled="{Binding SelectedProfileIsEditable}"/>
               </StackPanel>
             </ScrollViewer>
           </Border>
@@ -433,7 +601,54 @@
       </Grid>
     </TabItem>
 
-    <TabItem Header="Настройки" Tag="04">
+    <TabItem Header="Требуют внимания" Tag="05">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel>
+          <TextBlock Text="ДИАГНОСТИКА" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
+          <TextBlock Text="Требуют внимания" Style="{StaticResource PageTitle}"/>
+          <TextBlock Text="Здесь собраны проблемы интеграций и игры, для которых нужно действие." Style="{StaticResource Muted}" Margin="0,5,0,22"/>
+          <Border Style="{StaticResource Card}" Margin="0,0,0,16" Padding="22,16">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="{Binding ErrorCount}" Foreground="{StaticResource AccentBrush}" FontSize="23" FontWeight="SemiBold" Margin="0,0,12,0"/>
+              <TextBlock Text="задач и ограничений" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <Border Margin="0,0,0,14" Padding="30">
+            <Border.Style>
+              <Style TargetType="Border" BasedOn="{StaticResource Card}">
+                <Setter Property="Visibility" Value="Collapsed"/>
+                <Style.Triggers><DataTrigger Binding="{Binding ErrorCount}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+              </Style>
+            </Border.Style>
+            <StackPanel>
+              <TextBlock Text="Всё в порядке" FontSize="21" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"/>
+              <TextBlock Text="Сейчас нет игр или интеграций, которым требуется действие." Style="{StaticResource Muted}" Margin="0,8,0,0"/>
+            </StackPanel>
+          </Border>
+          <ItemsControl ItemsSource="{Binding AttentionItems}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14" Padding="24,20">
+                  <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,22,0">
+                      <TextBlock Text="{Binding Category}" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
+                      <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold"/>
+                      <TextBlock Text="{Binding Detail}" Style="{StaticResource Muted}" FontSize="12" Margin="0,8,0,0"/>
+                      <TextBlock Text="Что сделать" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" FontSize="12" Margin="0,15,0,4"/>
+                      <TextBlock Text="{Binding Advice}" Style="{StaticResource Muted}" FontSize="12"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="{Binding ActionLabel}" Click="AttentionAction_Click" VerticalAlignment="Center"/>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+    </TabItem>
+
+    <TabItem Header="Настройки" Tag="06">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel MaxWidth="860" HorizontalAlignment="Left">
           <TextBlock Text="ПРИЛОЖЕНИЕ" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
@@ -461,6 +676,8 @@
               <CheckBox Content="При запуске проверять и повторно применять настройки" IsChecked="{Binding CheckAtStartup}" Margin="0,0,0,7"/>
               <TextBlock Text="Сверяет сохранённые параметры с RTSS и NVIDIA. При расхождении применяет выбранные профили; для игр без профиля восстанавливает прежние параметры. Работает при запуске этого приложения." Style="{StaticResource Muted}" FontSize="12" Margin="30,0,0,17"/>
               <CheckBox Content="Запускать приложение при входе в Windows" IsChecked="{Binding AutoStart}" Margin="0,0,0,20"/>
+              <CheckBox Content="При закрытии окна оставлять приложение в трее" IsChecked="{Binding MinimizeToTray}" Margin="0,0,0,7"/>
+              <TextBlock Text="Окно скрывается, а проверка RTSS и частоты экрана продолжается. Двойной щелчок по значку возвращает окно; выход — через меню значка." Style="{StaticResource Muted}" FontSize="12" Margin="30,0,0,20"/>
               <Border Height="1" Background="{StaticResource StrokeBrush}" Margin="0,0,0,17"/>
               <TextBlock Text="NVIDIA" FontWeight="SemiBold" Margin="0,0,0,4"/>
               <TextBlock Text="{Binding NvidiaStatus}" Style="{StaticResource Muted}" FontSize="12"/>

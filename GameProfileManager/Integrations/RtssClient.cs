@@ -1,9 +1,10 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
 namespace GameProfileManager.Integrations;
 
-public sealed class RtssClient : IDisposable
+public sealed class RtssClient : IRtssSettings
 {
     private readonly IntPtr _library;
     private readonly LoadProfile _load;
@@ -14,6 +15,16 @@ public sealed class RtssClient : IDisposable
     private readonly DeleteProfile _delete;
 
     public string InstallDirectory { get; }
+    public bool IsRunning => ProcessIsRunning;
+    public static bool ProcessIsRunning
+    {
+        get
+        {
+            var processes = Process.GetProcessesByName("RTSS");
+            try { return processes.Length > 0; }
+            finally { foreach (var process in processes) process.Dispose(); }
+        }
+    }
     public static string? DetectDirectory()
     {
         using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Unwinder\RTSS")
@@ -47,8 +58,31 @@ public sealed class RtssClient : IDisposable
         return _get(Ansi("FramerateLimit"), value, 4) ? BitConverter.ToInt32(value) : null;
     }
 
+    public void ProbeWrite(string exeName, int? targetFps)
+    {
+        if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Запустите RTSS перед применением профиля.");
+        if (targetFps is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(targetFps));
+        string profiles = Path.Combine(InstallDirectory, "Profiles");
+        if (!Directory.Exists(profiles)) throw new DirectoryNotFoundException("Папка профилей RTSS не найдена: " + profiles);
+
+        string path = ProfilePath(exeName);
+        string source = File.Exists(path) ? path : Path.Combine(profiles, "Global");
+        if (targetFps.HasValue && ReadProfileValue(source, "LimitDenominator") is int denominator && denominator != 1)
+            throw new NotSupportedException("RTSS использует LimitDenominator ≠ 1; запись FPS заблокирована.");
+        if (File.Exists(path))
+        {
+            if (ReadFps(exeName) is null)
+                throw new NotSupportedException("Текущее значение FPS в RTSS неизвестно; безопасное восстановление невозможно.");
+            using var target = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        }
+        string probe = Path.Combine(profiles, ".gpm-probe-" + Guid.NewGuid().ToString("N") + ".tmp");
+        using (new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.DeleteOnClose)) { }
+        if (!IsRunning) throw new NotSupportedException("RTSS был закрыт во время проверки. Запустите его снова.");
+    }
+
     public void WriteFps(string exeName, int fps)
     {
+        if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Применение остановлено.");
         if (fps is < 1 or > 1000) throw new ArgumentOutOfRangeException(nameof(fps));
         string source = ProfileExists(exeName) ? ProfilePath(exeName) : Path.Combine(InstallDirectory, "Profiles", "Global");
         if (ReadProfileValue(source, "LimitDenominator") is int denominator && denominator != 1)
@@ -65,6 +99,7 @@ public sealed class RtssClient : IDisposable
 
     public void Restore(string exeName, bool existed, int? previousFps)
     {
+        if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Восстановление остановлено.");
         if (!existed)
         {
             _delete(Ansi(exeName)); _update();

@@ -1,4 +1,4 @@
-<Application x:Class="GameProfileManager.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" StartupUri="MainWindow.xaml">
+<Application x:Class="GameProfileManager.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources>
     <SolidColorBrush x:Key="BackgroundBrush" Color="#0C1118"/>
     <SolidColorBrush x:Key="SidebarBrush" Color="#101720"/>

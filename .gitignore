@@ -1,0 +1,41 @@
+# Сборка и публикация .NET
+bin/
+obj/
+Debug/
+Release/
+publish/
+dist/
+artifacts/
+GameProfileManager-win-x64*/
+
+# Готовые пакеты и исполняемые файлы
+*.exe
+*.dll
+*.pdb
+*.zip
+*.nupkg
+
+# Результаты тестов
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# Локальные данные и журналы приложения
+profiles.db
+profiles.db-*
+*.log
+
+# Настройки IDE и временные файлы
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
+*.tmp
+Thumbs.db
+Desktop.ini

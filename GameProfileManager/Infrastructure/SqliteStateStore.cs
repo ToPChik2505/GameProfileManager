@@ -60,10 +60,10 @@ public sealed class SqliteStateStore
 
     private static AppState NewState()
     {
-        var state = new AppState { PresetNamesLocalized = true };
-        state.Profiles.Add(new() { Name = "Кинематографичный", FpsLimit = 40, Vrr = VrrMode.FixedRefresh });
-        state.Profiles.Add(new() { Name = "Сбалансированный", FpsLimit = 60 });
-        state.Profiles.Add(new() { Name = "Соревновательный", FpsLimit = 115 });
+        var state = new AppState { PresetNamesLocalized = true, PresetProtectionMigrated = true };
+        state.Profiles.Add(new() { Name = "Кинематографичный", FpsLimit = 40, Vrr = VrrMode.FixedRefresh, IsBuiltIn = true });
+        state.Profiles.Add(new() { Name = "Сбалансированный", FpsLimit = 60, IsBuiltIn = true });
+        state.Profiles.Add(new() { Name = "Соревновательный", FpsLimit = 115, IsBuiltIn = true });
         return state;
     }
 

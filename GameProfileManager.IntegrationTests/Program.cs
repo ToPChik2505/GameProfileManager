@@ -1,6 +1,9 @@
 using GameProfileManager.Integrations;
 using GameProfileManager.Core;
 
+foreach (var display in WindowsDisplayDiscovery.Read())
+    Console.WriteLine($"Windows display: {display.Name}, {display.ResolutionLabel}, {display.RefreshLabel}, signal={display.SignalRefreshLabel}, {display.Connection}, primary={display.IsPrimary}, dynamic={display.DynamicRefresh}");
+
 if (args.Contains("--steam-scan"))
 {
     var games = SteamDiscovery.FindInstalled();
@@ -55,6 +58,9 @@ if (args.Contains("--nvidia-write-test"))
             Console.WriteLine($"NVIDIA fixed refresh readback: {nv.Read(game.ExePath).Vrr}");
             nv.Apply(game, new PerformanceProfile { Vrr = VrrMode.GSync, VSync = VSyncMode.On, FpsLimit = 60 });
             Console.WriteLine($"NVIDIA G-SYNC readback: {nv.Read(game.ExePath).Vrr}");
+            nv.Restore(game.ExePath, new SettingBackup { ManagedGameId = game.Id, NvidiaProfileExisted = false });
+            if (nv.Read(game.ExePath).ProfileExisted) throw new Exception("NVIDIA restore left the temporary profile behind");
+            Console.WriteLine("NVIDIA restore removed the temporary profile");
         }
         finally
         {
@@ -78,12 +84,13 @@ if (args.Contains("--sync-test"))
     state.Profiles.Add(profile); state.Games.Add(game);
     try
     {
-        service.ApplyAll(state);
         using var nv = new NvidiaClient();
-        Console.WriteLine($"Independent sync status: {game.Status}; NVIDIA VRR: {nv.Read(exe).Vrr}; RTSS: {game.Detail}");
-        if (nv.Read(exe).Vrr != NvidiaClient.FixedRefresh) throw new Exception("NVIDIA was not applied while RTSS was absent");
-        service.Restore(state, game);
-        Console.WriteLine($"Independent restore: {!nv.Read(exe).ProfileExisted}");
+        var before = nv.Read(exe);
+        service.ApplyAll(state);
+        var after = nv.Read(exe);
+        Console.WriteLine($"Preflight sync status: {game.Status}; NVIDIA VRR: {after.Vrr}; RTSS: {game.Detail}");
+        if (after != before || state.Backups.Count != 0 || game.Status is not ApplyStatus.Unsupported)
+            throw new Exception("Preflight allowed a partial NVIDIA write while RTSS was absent");
     }
     finally
     {
