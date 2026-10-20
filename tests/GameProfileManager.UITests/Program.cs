@@ -854,8 +854,8 @@ sealed class SlowRtss : IRtssSettings
 }
 sealed class SmokeNvidia : INvidiaSettings
 {
-    public (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) Read(string exePath)
-        => (false, null, false, null, false, null, false);
+    public NvidiaSettingsSnapshot Read(string exePath)
+        => default;
     public void ProbeWrite() { }
     public void Apply(GameEntry game, PerformanceProfile desired) { }
     public void Restore(string exePath, SettingBackup backup) { }

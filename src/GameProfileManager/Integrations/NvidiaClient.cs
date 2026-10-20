@@ -61,15 +61,15 @@ public sealed class NvidiaClient : INvidiaSettings
         Check(_initialize(), "NvAPI_Initialize");
     }
 
-    public (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) Read(string exePath)
+    public NvidiaSettingsSnapshot Read(string exePath)
     {
         using var session = OpenSession();
         IntPtr profile = FindProfile(session.Handle, exePath);
-        if (profile == IntPtr.Zero) return (false, null, false, null, false, null, false);
+        if (profile == IntPtr.Zero) return default;
         var vrr = ReadSetting(session.Handle, profile, VrrId);
         var vsync = ReadSetting(session.Handle, profile, VSyncId);
         var fps = ReadSetting(session.Handle, profile, NvidiaFpsId);
-        return (true, vrr.Value, vrr.Explicit, vsync.Value, vsync.Explicit, fps.Value, fps.Explicit);
+        return new NvidiaSettingsSnapshot(true, vrr.Value, vrr.Explicit, vsync.Value, vsync.Explicit, fps.Value, fps.Explicit);
     }
 
     public void ProbeWrite()

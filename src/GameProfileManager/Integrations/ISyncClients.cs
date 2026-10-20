@@ -2,6 +2,19 @@ using GameProfileManager.Core;
 
 namespace GameProfileManager.Integrations;
 
+/// <summary>
+/// Снимок значений NVIDIA DRS с признаками явно заданных параметров.
+/// Различие между унаследованным и явным значением важно для правильного восстановления.
+/// </summary>
+public readonly record struct NvidiaSettingsSnapshot(
+    bool ProfileExisted,
+    uint? Vrr,
+    bool VrrExplicit,
+    uint? VSync,
+    bool VSyncExplicit,
+    uint? Fps,
+    bool FpsExplicit);
+
 public interface IRtssSettings : IDisposable
 {
     string InstallDirectory { get; }
@@ -16,7 +29,7 @@ public interface IRtssSettings : IDisposable
 
 public interface INvidiaSettings : IDisposable
 {
-    (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) Read(string exePath);
+    NvidiaSettingsSnapshot Read(string exePath);
     void ProbeWrite();
     void Apply(GameEntry game, PerformanceProfile desired);
     void Restore(string exePath, SettingBackup backup);

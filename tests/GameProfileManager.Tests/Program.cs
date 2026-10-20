@@ -593,8 +593,8 @@ sealed class FakeNvidia : INvidiaSettings
     public bool ProbeFailure { get; set; }
     public bool FailAfterApply { get; set; }
     public int ApplyCalls { get; private set; }
-    public (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) Read(string exePath) =>
-        (ProfileExists, Vrr, ProfileExists, VSync, ProfileExists, Fps, ProfileExists);
+    public NvidiaSettingsSnapshot Read(string exePath) =>
+        new(ProfileExists, Vrr, ProfileExists, VSync, ProfileExists, Fps, ProfileExists);
     public void ProbeWrite()
     {
         if (ProbeFailure) throw new NotSupportedException("NVIDIA недоступна");

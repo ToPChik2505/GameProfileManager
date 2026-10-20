@@ -2,11 +2,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using GameProfileManager.Core;
+using GameProfileManager.Application;
 
 namespace GameProfileManager.Infrastructure;
 
 // Windows 11 ships winsqlite3.dll. One JSON document is stored transactionally in SQLite.
-public sealed class SqliteStateStore
+public sealed class SqliteStateStore : IStateStore
 {
     public string DirectoryPath { get; }
     public SqliteStateStore(string? directoryPath = null) => DirectoryPath = directoryPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameProfileManager");

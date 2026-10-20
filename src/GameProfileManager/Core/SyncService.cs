@@ -1,17 +1,17 @@
 using System.Diagnostics;
-using GameProfileManager.Infrastructure;
+using GameProfileManager.Application;
 using GameProfileManager.Integrations;
 
 namespace GameProfileManager.Core;
 
 public sealed class SyncService
 {
-    private readonly SqliteStateStore _store;
+    private readonly IStateStore _store;
     private readonly Func<string?, IRtssSettings> _rtssFactory;
     private readonly Func<INvidiaSettings> _nvidiaFactory;
     private readonly Func<IReadOnlyList<DisplayInfo>> _displayProvider;
 
-    public SyncService(SqliteStateStore store, Func<string?, IRtssSettings>? rtssFactory = null,
+    public SyncService(IStateStore store, Func<string?, IRtssSettings>? rtssFactory = null,
         Func<INvidiaSettings>? nvidiaFactory = null, Func<IReadOnlyList<DisplayInfo>>? displayProvider = null)
     {
         _store = store;
@@ -238,7 +238,7 @@ public sealed class SyncService
             bool rtssExisted = false;
             int? currentFps = null;
             int? currentLimiterMode = null;
-            (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) currentNvidia = default;
+            NvidiaSettingsSnapshot currentNvidia = default;
             string exeName = Path.GetFileName(game.ExePath);
             if (backup.RtssCaptured)
             {
@@ -310,7 +310,7 @@ public sealed class SyncService
     }
 
     private static SettingBackup Snapshot(GameEntry game, bool rtssExisted, int? rtssFps, int? rtssLimiterMode,
-        (bool ProfileExisted, uint? Vrr, bool VrrExplicit, uint? VSync, bool VSyncExplicit, uint? Fps, bool FpsExplicit) nvidia)
+        NvidiaSettingsSnapshot nvidia)
     {
         return new SettingBackup
         {
