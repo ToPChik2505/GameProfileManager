@@ -234,7 +234,9 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     var fractionMenu = Find<ComboBox>(window).Single(c => c.Name == "FractionMenu");
     var vrrMenu = Find<ComboBox>(window).Single(c => c.Name == "VrrMenu");
     var vSyncMenu = Find<ComboBox>(window).Single(c => c.Name == "VSyncMenu");
-    Check(vm.SelectedProfile is { IsBuiltIn: true } && !fpsModeMenu.IsEnabled,
+    var profileRtssMenu = Find<ComboBox>(window).Single(c => c.Name == "ProfileRtssLimiterMenu");
+    Check(vm.SelectedProfile is { IsBuiltIn: true } && !fpsModeMenu.IsEnabled &&
+          !profileRtssMenu.IsEnabled && (int)profileRtssMenu.SelectedValue == -1,
         "starter profile editor is disabled");
     var deleteProfile = Find<Button>(window).Single(button => Equals(button.Content, "Удалить выбранный"));
     Check(!deleteProfile.IsEnabled, "starter profile delete button is disabled");
@@ -244,7 +246,19 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     vm.DuplicateProfileCommand.Execute(null);
     Pump();
     Check(vm.Profiles.Count == beforeCopy + 1 && vm.SelectedProfile is { IsBuiltIn: false } &&
-          fpsModeMenu.IsEnabled && deleteProfile.IsEnabled, "editable copy is created from a starter profile");
+          fpsModeMenu.IsEnabled && profileRtssMenu.IsEnabled && deleteProfile.IsEnabled,
+        "editable copy is created from a starter profile");
+    Check(profileRtssMenu.Items.Cast<ModeOption<int>>().Select(option => option.Value)
+        .SequenceEqual([-1, 0, 1, 2, 3]) &&
+          ((ModeOption<int>)profileRtssMenu.Items[0]).Label == "Наследовать общий режим",
+        "profile editor has inheritance and four explicit RTSS modes");
+    OpenAndClose(profileRtssMenu, Path.Combine(output, "06i-profile-rtss-limiter-menu.png"));
+    profileRtssMenu.SelectedValue = (int)RtssLimiterMode.BackEdgeSync;
+    Pump();
+    Check(vm.SelectedProfile?.RtssLimiterMode == RtssLimiterMode.BackEdgeSync &&
+          vm.SelectedProfileEffectiveRtssModeLabel.Contains("Задний фронт") &&
+          vm.SelectedProfileEffectiveRtssModeLabel.Contains("задан в профиле"),
+        "profile RTSS selection and effective mode are displayed");
     OpenAndClose(fpsModeMenu, Path.Combine(output, "06c-fps-mode-menu.png"));
     fpsModeMenu.SelectedValue = FpsLimitMode.DisplayFraction;
     Pump();
@@ -308,7 +322,8 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     Pump();
     var savedProfile = new SqliteStateStore(Path.Combine(output, "state")).Load().Profiles.Single(p => p.Id == editedProfile.Id);
     Check(savedProfile.Name == editedProfile.Name && savedProfile.Description == editedProfile.Description &&
-          savedProfile.FpsLimit == 77 && savedProfile.VSync == VSyncMode.On,
+           savedProfile.FpsLimit == 77 && savedProfile.VSync == VSyncMode.On &&
+           savedProfile.RtssLimiterMode == RtssLimiterMode.BackEdgeSync,
         "profile text, FPS and mode are saved automatically");
     Capture(window, Path.Combine(output, "04-profiles.png"));
 
@@ -346,13 +361,47 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     Check(limiterMenu.Items.Cast<ModeOption<RtssLimiterMode>>().Take(3).All(option =>
         option.Label.Any(character => character is >= 'А' and <= 'я')),
         "RTSS limiter choices include Russian labels");
+    var inheritedProfile = vm.SelectedProfile!;
+    vm.DuplicateProfileCommand.Execute(null);
+    var explicitProfile = vm.SelectedProfile!;
+    explicitProfile.RtssLimiterMode = RtssLimiterMode.BackEdgeSync;
+    vm.SelectedProfile = inheritedProfile;
+    string explicitExe = Path.Combine(output, "ExplicitModeSample.exe");
+    File.WriteAllBytes(explicitExe, [0x4D, 0x5A]);
+    var explicitGame = new GameEntry { Name = "Игра с явным режимом", ExePath = explicitExe,
+        ProfileId = explicitProfile.Id, Status = ApplyStatus.Applied };
+    vm.Games.Add(explicitGame);
+    vm.Games[0].Status = ApplyStatus.Applied;
+    vm.Games[0].Detail = "Режим профиля уже применён";
     limiterMenu.SelectedValue = RtssLimiterMode.BackEdgeSync;
     Pump();
     Check(vm.RtssLimiterMode == RtssLimiterMode.BackEdgeSync &&
           new SqliteStateStore(Path.Combine(output, "state")).Load().RtssLimiterMode == RtssLimiterMode.BackEdgeSync,
         "RTSS limiter selection is saved automatically");
-    Check(vm.Games[0].Status == ApplyStatus.Pending && vm.Games[0].Detail.Contains("Режим лимитера"),
-        "assigned games await applying the new RTSS limiter mode");
+    Check(vm.Games[0].Status == ApplyStatus.Applied && explicitGame.Status == ApplyStatus.Applied &&
+          vm.Games[0].RtssLimiterDisplay.Contains("Задний фронт"),
+        "changing the global RTSS mode leaves an explicit profile untouched");
+    vm.SelectedProfileRtssLimiterChoice = -1;
+    Pump();
+    Check(vm.SelectedProfile?.RtssLimiterMode is null && vm.Games[0].Status == ApplyStatus.Applied &&
+          vm.SelectedProfileEffectiveRtssModeLabel.Contains("общий"),
+        "switching to inheritance with the same effective value does not mark the game pending");
+    limiterMenu.SelectedValue = RtssLimiterMode.Async;
+    Pump();
+    Check(vm.Games[0].Status == ApplyStatus.Pending && explicitGame.Status == ApplyStatus.Applied &&
+          vm.Games[0].Detail.Contains("Режим лимитера") &&
+          vm.Games[0].RtssLimiterDisplay.Contains("Асинхронный"),
+        "changing the global RTSS mode marks only inheriting games pending");
+    vm.Games[0].Status = ApplyStatus.Applied;
+    vm.SelectedProfileRtssLimiterChoice = (int)RtssLimiterMode.NvidiaReflex;
+    Pump();
+    Check(vm.Games[0].Status == ApplyStatus.Pending && explicitGame.Status == ApplyStatus.Applied,
+        "changing an individual RTSS mode marks only games assigned to that profile pending");
+    vm.SelectedProfileRtssLimiterChoice = -1;
+    vm.Games.Remove(explicitGame);
+    vm.SelectedProfile = explicitProfile;
+    vm.RemoveProfileCommand.Execute(null);
+    vm.SelectedProfile = inheritedProfile;
     Capture(window, Path.Combine(output, "06-settings.png"));
     var themeMenu = Find<ComboBox>(window).Single(c => c.Name == "ThemeMenu");
     OpenAndClose(themeMenu, Path.Combine(output, "06g-theme-menu.png"));
@@ -597,6 +646,14 @@ static void CheckControllerNavigation(MainWindow window, MainViewModel vm)
     Send(ControllerAction.Menu);
     Check(Keyboard.FocusedElement is Button { Name: "ApplyHeaderButton" },
         "controller menu reaches global apply button");
+    vm.SelectedProfile = vm.Profiles.Last();
+    Pump();
+    var profileRtss = Find<ComboBox>(window).Single(box => box.Name == "ProfileRtssLimiterMenu");
+    profileRtss.Focus();
+    Send(ControllerAction.Accept);
+    Check(profileRtss.IsDropDownOpen, "controller opens the profile RTSS selector");
+    Send(ControllerAction.Back);
+    Check(!profileRtss.IsDropDownOpen, "controller closes the profile RTSS selector");
     tabs.SelectedIndex = 5;
     Pump();
     var theme = Find<ComboBox>(window).First(box => box.Name == "ThemeMenu");

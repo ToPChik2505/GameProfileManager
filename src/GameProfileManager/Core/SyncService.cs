@@ -57,6 +57,9 @@ public sealed class SyncService
             { game.Status = ApplyStatus.Unsupported; game.Detail = "Несколько записей используют одно имя .exe в RTSS"; continue; }
             var fps = DisplayFps.Resolve(state, game, profile, displays);
             if (fps.Fps is null) { game.Status = ApplyStatus.Unsupported; game.Detail = fps.Detail; continue; }
+            var limiterMode = RtssLimiterModeResolver.Resolve(state, profile);
+            if (!Enum.IsDefined(limiterMode))
+            { game.Status = ApplyStatus.Error; game.Detail = "Некорректный режим лимитера RTSS"; continue; }
 
             bool rtssMatched = false, nvidiaMatched = false, rtssAvailable = false, nvidiaAvailable = false;
             string rtssDetail = "", nvidiaDetail = "";
@@ -70,11 +73,15 @@ public sealed class SyncService
                     string exeName = Path.GetFileName(game.ExePath);
                     bool exists = rtss.ProfileExists(exeName);
                     bool fpsMatched = exists && rtss.ReadFps(exeName) == fps.Fps;
-                    bool limiterMatched = exists && rtss.ReadLimiterMode(exeName) == (int)state.RtssLimiterMode;
+                    int? actualLimiterMode = exists ? rtss.ReadLimiterMode(exeName) : null;
+                    bool limiterMatched = exists && actualLimiterMode == (int)limiterMode;
                     rtssMatched = fpsMatched && limiterMatched;
+                    string limiterDifference = "режим лимитера отличается (ожидается " +
+                        ProfileLabels.Rtss(limiterMode) + ", прочитано " +
+                        (actualLimiterMode is int actual ? ProfileLabels.Rtss((RtssLimiterMode)actual) : "нет данных") + ")";
                     rtssDetail = rtssMatched ? "лимит FPS и режим подтверждены" : !exists ? "профиль игры отсутствует" :
-                        !fpsMatched && !limiterMatched ? "лимит FPS и режим отличаются" :
-                        !fpsMatched ? "лимит FPS отличается" : "режим лимитера отличается";
+                        !fpsMatched && !limiterMatched ? "лимит FPS отличается; " + limiterDifference :
+                        !fpsMatched ? "лимит FPS отличается" : limiterDifference;
                 }
             }
             catch (Exception ex) { rtssDetail = ex.Message; _store.Log(ex); }
@@ -149,7 +156,8 @@ public sealed class SyncService
             else { game.Status = ApplyStatus.Unsupported; game.Detail = fps.Detail; }
             return;
         }
-        if (!Enum.IsDefined(state.RtssLimiterMode))
+        var limiterMode = RtssLimiterModeResolver.Resolve(state, profile);
+        if (!Enum.IsDefined(limiterMode))
         { game.Status = ApplyStatus.Error; game.Detail = "Некорректный режим лимитера RTSS"; return; }
 
         IRtssSettings? rtss = null;
@@ -190,7 +198,7 @@ public sealed class SyncService
             _store.Save(state); // Both original values are durable before either integration is changed.
 
             rtssAttempted = true;
-            rtss.WriteSettings(exeName, targetFps, state.RtssLimiterMode);
+            rtss.WriteSettings(exeName, targetFps, limiterMode);
             nvidiaAttempted = true;
             nvidia.Apply(game, profile);
 

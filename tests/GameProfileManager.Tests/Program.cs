@@ -2,6 +2,7 @@ using GameProfileManager;
 using GameProfileManager.Core;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
+using System.Text.Json;
 
 string temp = Path.Combine(Path.GetTempPath(), "gpm-tests-" + Guid.NewGuid().ToString("N"));
 try
@@ -80,6 +81,21 @@ try
     Assert(!editableCopy.IsBuiltIn && editableCopy.Id != state.Profiles[0].Id &&
            editableCopy.FpsLimit == state.Profiles[0].FpsLimit,
         "copy keeps settings but can be edited independently");
+    var explicitSource = new PerformanceProfile { RtssLimiterMode = RtssLimiterMode.NvidiaReflex };
+    Assert(ProfilePresets.EditableCopy(explicitSource).RtssLimiterMode == RtssLimiterMode.NvidiaReflex,
+        "copy keeps the individual RTSS limiter mode");
+    var oldJson = JsonSerializer.Deserialize<AppState>("""
+        {"RtssLimiterMode":2,"Profiles":[{"Name":"Старый профиль"}]}
+        """)!;
+    Assert(oldJson.Profiles.Single().RtssLimiterMode is null &&
+           RtssLimiterModeResolver.Resolve(oldJson, oldJson.Profiles.Single()) == RtssLimiterMode.BackEdgeSync,
+        "a legacy JSON profile without the new field inherits the global RTSS mode");
+    var oldJsonStore = new SqliteStateStore(Path.Combine(temp, "legacy-json"));
+    oldJsonStore.Save(oldJson);
+    var oldJsonLoaded = oldJsonStore.Load();
+    Assert(oldJsonLoaded.Profiles.Single().RtssLimiterMode is null &&
+           RtssLimiterModeResolver.Resolve(oldJsonLoaded, oldJsonLoaded.Profiles.Single()) == RtssLimiterMode.BackEdgeSync,
+        "legacy profile inheritance survives the SQLite JSON roundtrip");
     var cinematic = state.Profiles.Single(p => p.Name == "Кинематографичный");
     var gameA = new GameEntry { Name = "A", ExePath = @"C:\Games\A.exe", ProfileId = cinematic.Id };
     var gameB = new GameEntry { Name = "B", ExePath = @"C:\Games\B.exe", ProfileId = cinematic.Id };
@@ -215,6 +231,67 @@ try
     sync.Restore(single, single.Games[0]);
     Assert(rtssFake.Fps == 45 && rtssFake.LimiterMode == 0 && !nvidiaFake.ProfileExists && single.Backups.Count == 0,
         "restoring a game returns both integrations to original values");
+
+    var individualState = new AppState();
+    var individualA = new PerformanceProfile { Name = "A", FpsLimit = 73, RtssLimiterMode = RtssLimiterMode.Async };
+    var individualB = new PerformanceProfile { Name = "B", FpsLimit = 73, RtssLimiterMode = RtssLimiterMode.BackEdgeSync };
+    individualState.Profiles.Add(individualA); individualState.Profiles.Add(individualB);
+    var individualGameA = new GameEntry { Name = "A", ExePath = exeA, ProfileId = individualA.Id };
+    var individualGameB = new GameEntry { Name = "B", ExePath = exeB, ProfileId = individualB.Id };
+    individualState.Games.Add(individualGameA); individualState.Games.Add(individualGameB);
+    var individualRtss = new PerExeFakeRtss();
+    individualRtss.Seed(exeA, 45, 2);
+    individualRtss.Seed(exeB, 50, 3);
+    var individualNvidia = new FakeNvidia();
+    var individualSync = new SyncService(store, _ => individualRtss, () => individualNvidia);
+    individualSync.ApplyOne(individualState, individualGameA);
+    individualSync.ApplyOne(individualState, individualGameB);
+    Assert(individualRtss.Writes.Select(write => write.Mode).SequenceEqual(
+               [RtssLimiterMode.Async, RtssLimiterMode.BackEdgeSync]) &&
+           individualState.Backups.Single(b => b.ManagedGameId == individualGameA.Id).RtssSyncLimiter == 2 &&
+           individualState.Backups.Single(b => b.ManagedGameId == individualGameB.Id).RtssSyncLimiter == 3,
+        "two game profiles write their distinct limiter modes and capture original values");
+    individualSync.CheckSaved(individualState);
+    Assert(individualGameA.Status == ApplyStatus.Applied && individualGameB.Status == ApplyStatus.Applied,
+        "CheckSaved verifies each explicit limiter mode");
+    individualRtss.SetMode(exeB, 1);
+    individualSync.CheckSaved(individualState);
+    Assert(individualGameA.Status == ApplyStatus.Applied && individualGameB.Status == ApplyStatus.Pending &&
+           individualGameB.Detail.Contains("режим лимитера отличается"),
+        "CheckSaved identifies a mismatch in only the affected game's limiter mode");
+    individualRtss.SetMode(exeB, 2);
+    individualState.RtssLimiterMode = RtssLimiterMode.NvidiaReflex;
+    individualSync.CheckSaved(individualState);
+    Assert(individualGameA.Status == ApplyStatus.Applied && individualGameB.Status == ApplyStatus.Applied,
+        "a changed global mode does not affect explicit profile modes");
+    individualA.RtssLimiterMode = null;
+    individualSync.CheckSaved(individualState);
+    Assert(individualGameA.Status == ApplyStatus.Pending && individualGameB.Status == ApplyStatus.Applied,
+        "switching one profile to inheritance changes only its desired mode");
+    individualSync.ApplyOne(individualState, individualGameA);
+    individualState.RtssLimiterMode = RtssLimiterMode.FrontEdgeSync;
+    individualSync.ApplyOne(individualState, individualGameA);
+    Assert(individualRtss.ReadLimiterMode(Path.GetFileName(exeA)) == 1 &&
+           individualState.Backups.Single(b => b.ManagedGameId == individualGameA.Id).RtssFps == 45 &&
+           individualState.Backups.Single(b => b.ManagedGameId == individualGameA.Id).RtssSyncLimiter == 2,
+        "repeated applies keep the original RTSS FPS and limiter backup");
+    individualSync.Restore(individualState, individualGameA);
+    Assert(individualRtss.ReadFps(Path.GetFileName(exeA)) == 45 &&
+           individualRtss.ReadLimiterMode(Path.GetFileName(exeA)) == 2 &&
+           individualState.Backups.All(b => b.ManagedGameId != individualGameA.Id),
+        "restore returns the first game's original FPS and limiter mode");
+    var invalidState = new AppState();
+    var invalidProfile = new PerformanceProfile { RtssLimiterMode = (RtssLimiterMode)99 };
+    invalidState.Profiles.Add(invalidProfile);
+    var invalidGame = new GameEntry { Name = "Invalid", ExePath = exeA, ProfileId = invalidProfile.Id };
+    invalidState.Games.Add(invalidGame);
+    int writesBeforeInvalid = individualRtss.Writes.Count;
+    individualSync.CheckSaved(invalidState);
+    individualSync.ApplyOne(invalidState, invalidGame);
+    Assert(invalidGame.Status == ApplyStatus.Error && individualRtss.Writes.Count == writesBeforeInvalid &&
+           invalidState.Backups.Count == 0,
+        "invalid explicit modes fail before any external write");
+    Console.WriteLine("PASS individual RTSS limiter inheritance, readback and original restore");
 
     var zeroLimitState = SelectionState();
     zeroLimitState.Games[0].ProfileId = null;
@@ -443,6 +520,35 @@ sealed class FakeRtss : IRtssSettings
     }
     public void Restore(string exeName, bool existed, int? previousFps, int? previousLimiterMode)
     { Exists = existed; Fps = previousFps; LimiterMode = previousLimiterMode ?? LimiterMode; }
+    public void Dispose() { }
+}
+
+sealed class PerExeFakeRtss : IRtssSettings
+{
+    private readonly Dictionary<string, (int? Fps, int? Mode)> _profiles = new(StringComparer.OrdinalIgnoreCase);
+    public string InstallDirectory => "test";
+    public bool IsRunning => true;
+    public List<(string ExeName, RtssLimiterMode Mode)> Writes { get; } = new();
+    public void Seed(string exePath, int fps, int mode) => _profiles[Path.GetFileName(exePath)] = (fps, mode);
+    public void SetMode(string exePath, int mode)
+    {
+        string name = Path.GetFileName(exePath);
+        _profiles[name] = (_profiles[name].Fps, mode);
+    }
+    public bool ProfileExists(string exeName) => _profiles.ContainsKey(exeName);
+    public int? ReadFps(string exeName) => _profiles.TryGetValue(exeName, out var value) ? value.Fps : null;
+    public int? ReadLimiterMode(string exeName) => _profiles.TryGetValue(exeName, out var value) ? value.Mode : null;
+    public void ProbeWrite(string exeName, int? targetFps) { }
+    public void WriteSettings(string exeName, int fps, RtssLimiterMode mode)
+    {
+        Writes.Add((exeName, mode));
+        _profiles[exeName] = (fps, (int)mode);
+    }
+    public void Restore(string exeName, bool existed, int? previousFps, int? previousLimiterMode)
+    {
+        if (existed) _profiles[exeName] = (previousFps, previousLimiterMode);
+        else _profiles.Remove(exeName);
+    }
     public void Dispose() { }
 }
 

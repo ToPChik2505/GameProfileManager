@@ -27,6 +27,15 @@ public enum ApplyStatus { Pending, Applied, RestartRequired, Unsupported, Error 
 
 public static class ProfileLabels
 {
+    public static string Rtss(RtssLimiterMode mode) => mode switch
+    {
+        RtssLimiterMode.Async => "Асинхронный (Async)",
+        RtssLimiterMode.FrontEdgeSync => "Передний фронт (Front Edge Sync)",
+        RtssLimiterMode.BackEdgeSync => "Задний фронт (Back Edge Sync)",
+        RtssLimiterMode.NvidiaReflex => "NVIDIA Reflex",
+        _ => $"Неизвестный режим ({(int)mode})"
+    };
+
     public static string Vrr(VrrMode mode) => mode switch
     {
         VrrMode.GSync => "G-SYNC",
@@ -68,8 +77,15 @@ public static class ProfilePresets
         FpsDivisor = source.FpsDivisor,
         Vrr = source.Vrr,
         VSync = source.VSync,
+        RtssLimiterMode = source.RtssLimiterMode,
         Description = source.Description
     };
+}
+
+public static class RtssLimiterModeResolver
+{
+    public static RtssLimiterMode Resolve(AppState state, PerformanceProfile profile) =>
+        profile.RtssLimiterMode ?? state.RtssLimiterMode;
 }
 
 public sealed class PerformanceProfile : Observable
@@ -81,6 +97,7 @@ public sealed class PerformanceProfile : Observable
     private int _fpsDivisor = 2;
     private VrrMode _vrr = VrrMode.GSync;
     private VSyncMode _vSync = VSyncMode.On;
+    private RtssLimiterMode? _rtssLimiterMode;
     private string _description = "";
     public string Name { get => _name; set => Set(ref _name, value); }
     public int FpsLimit { get => _fpsLimit; set => Set(ref _fpsLimit, value); }
@@ -88,6 +105,7 @@ public sealed class PerformanceProfile : Observable
     public int FpsDivisor { get => _fpsDivisor; set => Set(ref _fpsDivisor, value); }
     public VrrMode Vrr { get => _vrr; set { if (Set(ref _vrr, value)) Changed(nameof(VrrDisplay)); } }
     public VSyncMode VSync { get => _vSync; set => Set(ref _vSync, value); }
+    public RtssLimiterMode? RtssLimiterMode { get => _rtssLimiterMode; set => Set(ref _rtssLimiterMode, value); }
     public string Description { get => _description; set => Set(ref _description, value); }
     public bool IsBuiltIn { get; set; }
     [JsonIgnore] public string VrrDisplay => ProfileLabels.Vrr(Vrr);
@@ -128,6 +146,7 @@ public sealed class GameEntry : Observable
     [JsonIgnore] public string FpsDisplay { get; set; } = "—";
     [JsonIgnore] public string VrrDisplay { get; set; } = "—";
     [JsonIgnore] public string VSyncDisplay { get; set; } = "—";
+    [JsonIgnore] public string RtssLimiterDisplay { get; set; } = "—";
     [JsonIgnore] public ImageSource? Icon { get; set; }
 }
 

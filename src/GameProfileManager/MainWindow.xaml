@@ -529,6 +529,7 @@
                           <Border Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="11" Padding="15" Margin="6,0,6,0"><StackPanel><TextBlock Text="МОНИТОР" Style="{StaticResource Eyebrow}"/><TextBlock Text="{Binding VrrDisplay}" FontSize="17" FontWeight="SemiBold" Margin="0,9,0,0"/></StackPanel></Border>
                           <Border Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="11" Padding="15" Margin="6,0,0,0"><StackPanel><TextBlock Text="V-SYNC" Style="{StaticResource Eyebrow}"/><TextBlock Text="{Binding VSyncDisplay}" FontSize="17" FontWeight="SemiBold" Margin="0,9,0,0"/></StackPanel></Border>
                         </UniformGrid>
+                        <TextBlock Text="{Binding RtssLimiterDisplay}" Style="{StaticResource Muted}" FontSize="12" Margin="0,0,0,17"/>
                         <Grid Margin="0,0,0,17">
                           <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                           <StackPanel>
@@ -651,6 +652,11 @@
                 <ComboBox x:Name="VSyncMenu" IsEnabled="{Binding SelectedProfileIsEditable}" ItemsSource="{Binding VSyncModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfile.VSync, Mode=TwoWay}" Margin="0,0,0,19">
                   <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
                 </ComboBox>
+                <TextBlock Text="Режим лимитера RTSS" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="ProfileRtssLimiterMenu" IsEnabled="{Binding SelectedProfileIsEditable}" ItemsSource="{Binding ProfileRtssLimiterModes}" SelectedValuePath="Value" SelectedValue="{Binding SelectedProfileRtssLimiterChoice, Mode=TwoWay}" Margin="0,0,0,7">
+                  <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Text="{Binding SelectedProfileEffectiveRtssModeLabel}" Style="{StaticResource Muted}" FontSize="11" Margin="0,0,0,19"/>
                 <TextBlock Text="Описание" Style="{StaticResource FieldLabel}"/>
                 <TextBox Tag="Описание профиля" Text="{Binding SelectedProfile.Description, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding SelectedProfileIsEditable}"/>
               </StackPanel>
@@ -740,7 +746,7 @@
                         SelectedValue="{Binding RtssLimiterMode, Mode=TwoWay}" Width="330" HorizontalAlignment="Left">
                 <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
               </ComboBox>
-              <TextBlock Text="Выбранный режим записывается в профиль RTSS каждой игры при следующем применении. По умолчанию — Front Edge Sync."
+              <TextBlock Text="Общий режим применяется к профилям с выбором «Наследовать общий режим» при следующем применении игры. По умолчанию — Front Edge Sync."
                          Style="{StaticResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,9,0,0"/>
               <TextBlock Text="{Binding RtssStatus}" Style="{StaticResource Muted}" FontSize="12" Margin="0,13,0,0"/>
             </StackPanel>

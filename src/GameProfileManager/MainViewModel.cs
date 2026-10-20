@@ -18,6 +18,7 @@ public sealed class MainViewModel : Observable, IDisposable
     private readonly SqliteStateStore _store;
     private readonly SyncService _sync;
     private readonly AppState _state;
+    private readonly Dictionary<Guid, RtssLimiterMode> _effectiveRtssModes = new();
     private readonly ObservableCollection<DisplayInfo> _displays = new();
     private DisplayInfo? _selectedDisplay;
     private string _displayStatus = "Проверка экранов...";
@@ -49,10 +50,18 @@ public sealed class MainViewModel : Observable, IDisposable
     ];
     public IReadOnlyList<ModeOption<RtssLimiterMode>> RtssLimiterModes { get; } =
     [
-        new(RtssLimiterMode.Async, "Асинхронный (Async)"),
-        new(RtssLimiterMode.FrontEdgeSync, "Передний фронт (Front Edge Sync)"),
-        new(RtssLimiterMode.BackEdgeSync, "Задний фронт (Back Edge Sync)"),
-        new(RtssLimiterMode.NvidiaReflex, "NVIDIA Reflex")
+        new(RtssLimiterMode.Async, ProfileLabels.Rtss(RtssLimiterMode.Async)),
+        new(RtssLimiterMode.FrontEdgeSync, ProfileLabels.Rtss(RtssLimiterMode.FrontEdgeSync)),
+        new(RtssLimiterMode.BackEdgeSync, ProfileLabels.Rtss(RtssLimiterMode.BackEdgeSync)),
+        new(RtssLimiterMode.NvidiaReflex, ProfileLabels.Rtss(RtssLimiterMode.NvidiaReflex))
+    ];
+    public IReadOnlyList<ModeOption<int>> ProfileRtssLimiterModes { get; } =
+    [
+        new(-1, "Наследовать общий режим"),
+        new((int)RtssLimiterMode.Async, ProfileLabels.Rtss(RtssLimiterMode.Async)),
+        new((int)RtssLimiterMode.FrontEdgeSync, ProfileLabels.Rtss(RtssLimiterMode.FrontEdgeSync)),
+        new((int)RtssLimiterMode.BackEdgeSync, ProfileLabels.Rtss(RtssLimiterMode.BackEdgeSync)),
+        new((int)RtssLimiterMode.NvidiaReflex, ProfileLabels.Rtss(RtssLimiterMode.NvidiaReflex))
     ];
     public ObservableCollection<AttentionItem> AttentionItems { get; } = new();
     public bool IsUpdatingDisplayOptions { get; private set; }
@@ -91,10 +100,26 @@ public sealed class MainViewModel : Observable, IDisposable
             if (!Set(ref _selectedProfile, value)) return;
             Changed(nameof(SelectedProfileIsEditable));
             Changed(nameof(SelectedProfileHelp));
+            Changed(nameof(SelectedProfileRtssLimiterChoice));
+            Changed(nameof(SelectedProfileEffectiveRtssModeLabel));
             UpdateFpsFractions();
         }
     }
     public bool SelectedProfileIsEditable => !IsApplyingAll && SelectedProfile is { IsBuiltIn: false };
+    public int SelectedProfileRtssLimiterChoice
+    {
+        get => SelectedProfile?.RtssLimiterMode is { } mode ? (int)mode : -1;
+        set
+        {
+            if (SelectedProfile is not { IsBuiltIn: false } profile || !CanEdit ||
+                value != -1 && !Enum.IsDefined((RtssLimiterMode)value)) return;
+            profile.RtssLimiterMode = value == -1 ? null : (RtssLimiterMode)value;
+        }
+    }
+    public string SelectedProfileEffectiveRtssModeLabel => SelectedProfile is not { } profile
+        ? "Выберите профиль"
+        : "Эффективный режим: " + ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
+          (profile.RtssLimiterMode is null ? " · общий" : " · задан в профиле");
     public bool IsApplyingAll
     {
         get => _isApplyingAll;
@@ -176,8 +201,13 @@ public sealed class MainViewModel : Observable, IDisposable
             if (_state.RtssLimiterMode == value || !Enum.IsDefined(value)) return;
             _state.RtssLimiterMode = value;
             Changed(nameof(RtssLimiterMode));
-            foreach (var game in Games.Where(game => Profiles.Any(profile => profile.Id == game.ProfileId)))
+            var inherited = Profiles.Where(profile => profile.RtssLimiterMode is null)
+                .Select(profile => profile.Id).ToHashSet();
+            foreach (var profileId in inherited) _effectiveRtssModes[profileId] = value;
+            foreach (var game in Games.Where(game => game.ProfileId is { } id && inherited.Contains(id)))
             { game.Status = ApplyStatus.Pending; game.Detail = "Режим лимитера RTSS изменён; примените профиль"; }
+            Changed(nameof(SelectedProfileEffectiveRtssModeLabel));
+            RefreshDisplays();
             SaveOnly(false);
         }
     }
@@ -309,6 +339,7 @@ public sealed class MainViewModel : Observable, IDisposable
             if (SelectedProfile is null) return;
             if (SelectedProfile.IsBuiltIn) { Notice = "Стандартный профиль нельзя удалить."; return; }
             if (Games.Any(g => g.ProfileId == SelectedProfile.Id)) { Notice = "Сначала переназначьте игры этого профиля."; return; }
+            _effectiveRtssModes.Remove(SelectedProfile.Id);
             ProfileOptions.Remove(ProfileOptions.Single(option => option.Id == SelectedProfile.Id));
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
         }, () => !_busy);
@@ -704,23 +735,44 @@ public sealed class MainViewModel : Observable, IDisposable
                 : $"EGS: найдено {found.Count}, добавлено {added}, уже в библиотеке {existingCount}. Для неоднозначных игр выберите .exe вручную.";
         });
     }
-    private void Hook(PerformanceProfile profile) => profile.PropertyChanged += (_, e) =>
+    private void Hook(PerformanceProfile profile)
     {
-        if (e.PropertyName is nameof(PerformanceProfile.Name) or nameof(PerformanceProfile.FpsLimit) or
-            nameof(PerformanceProfile.FpsMode) or nameof(PerformanceProfile.FpsDivisor) or
-            nameof(PerformanceProfile.Vrr) or nameof(PerformanceProfile.VSync) or
-            nameof(PerformanceProfile.Description))
+        _effectiveRtssModes[profile.Id] = RtssLimiterModeResolver.Resolve(_state, profile);
+        profile.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(PerformanceProfile.Name)) ProfileOptions.First(option => option.Id == profile.Id).RefreshName();
-            if (e.PropertyName != nameof(PerformanceProfile.Description))
+            if (e.PropertyName == nameof(PerformanceProfile.RtssLimiterMode))
             {
-                if (profile == SelectedProfile) UpdateFpsFractions();
-                foreach (var game in Games.Where(g => g.ProfileId == profile.Id)) { game.Status = ApplyStatus.Pending; game.Detail = "Профиль изменён"; }
+                var effective = RtssLimiterModeResolver.Resolve(_state, profile);
+                bool changed = !_effectiveRtssModes.TryGetValue(profile.Id, out var previous) || previous != effective;
+                _effectiveRtssModes[profile.Id] = effective;
+                if (profile == SelectedProfile)
+                {
+                    Changed(nameof(SelectedProfileRtssLimiterChoice));
+                    Changed(nameof(SelectedProfileEffectiveRtssModeLabel));
+                }
+                if (changed)
+                    foreach (var game in Games.Where(g => g.ProfileId == profile.Id))
+                    { game.Status = ApplyStatus.Pending; game.Detail = "Режим лимитера RTSS изменён; примените профиль"; }
                 RefreshDisplays();
+                ScheduleSave();
+                return;
             }
-            ScheduleSave();
-        }
-    };
+            if (e.PropertyName is nameof(PerformanceProfile.Name) or nameof(PerformanceProfile.FpsLimit) or
+                nameof(PerformanceProfile.FpsMode) or nameof(PerformanceProfile.FpsDivisor) or
+                nameof(PerformanceProfile.Vrr) or nameof(PerformanceProfile.VSync) or
+                nameof(PerformanceProfile.Description))
+            {
+                if (e.PropertyName == nameof(PerformanceProfile.Name)) ProfileOptions.First(option => option.Id == profile.Id).RefreshName();
+                if (e.PropertyName != nameof(PerformanceProfile.Description))
+                {
+                    if (profile == SelectedProfile) UpdateFpsFractions();
+                    foreach (var game in Games.Where(g => g.ProfileId == profile.Id)) { game.Status = ApplyStatus.Pending; game.Detail = "Профиль изменён"; }
+                    RefreshDisplays();
+                }
+                ScheduleSave();
+            }
+        };
+    }
     private void Hook(GameEntry game) => game.PropertyChanged += (_, e) =>
     {
         if (e.PropertyName == nameof(GameEntry.Name)) { UpdateSummary(); ScheduleSave(); }
@@ -754,8 +806,12 @@ public sealed class MainViewModel : Observable, IDisposable
             game.FpsDisplay = profile is null ? "—" : DisplayFps.Resolve(_state, game, profile, displays).DisplayText;
             game.VrrDisplay = profile is null ? "—" : ProfileLabels.Vrr(profile.Vrr);
             game.VSyncDisplay = profile is null ? "—" : ProfileLabels.VSync(profile.VSync);
+            game.RtssLimiterDisplay = profile is null ? "RTSS: —" :
+                "RTSS: " + ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
+                (profile.RtssLimiterMode is null ? " · общий режим" : " · режим профиля");
             if (game.Icon is null) game.Icon = FileIcon.Load(game);
             game.Changed(nameof(GameEntry.FpsDisplay)); game.Changed(nameof(GameEntry.VrrDisplay)); game.Changed(nameof(GameEntry.VSyncDisplay));
+            game.Changed(nameof(GameEntry.RtssLimiterDisplay));
             game.Changed(nameof(GameEntry.Icon));
         }
         if (StatusFilter != "Все статусы") GamesView.Refresh();
