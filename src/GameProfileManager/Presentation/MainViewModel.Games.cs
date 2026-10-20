@@ -17,20 +17,22 @@ public sealed partial class MainViewModel
         var game = new GameEntry { Name = Path.GetFileNameWithoutExtension(path), ExePath = path, Detail = "Выберите профиль" };
         Games.Add(game); Hook(game); SelectedGame = game; RefreshDisplays(); SaveOnly(); UpdateSummary();
     }
-    private void ChooseExe()
+    private async Task ChooseExeAsync()
     {
-        if (SelectedGame is null) { Notice = "Выберите игру."; return; }
-        string? path = SelectLocalFile("Выберите игровой процесс", "*.exe", SelectedGame.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        if (SelectedGame is not { } game) { Notice = "Выберите игру."; return; }
+        string? path = SelectLocalFile("Выберите игровой процесс", "*.exe", game.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
         if (path is null) return;
-        if (!SelectedGame.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase) &&
-            _state.Backups.Any(b => b.ExePath.Equals(SelectedGame.ExePath, StringComparison.OrdinalIgnoreCase)))
+        if (!game.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase) &&
+            _state.Backups.Any(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
         {
-            Run(() => _sync.Restore(_state, SelectedGame));
-            if (SelectedGame.Status == ApplyStatus.Error) { Notice = SelectedGame.Detail; return; }
+            bool completed = await RunSyncAsync((service, state) =>
+                service.Restore(state, state.Games.Single(item => item.Id == game.Id)));
+            if (!completed || _state.Backups.Any(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+            { Notice = game.Detail; return; }
         }
-        SelectedGame.ExePath = path;
-        SelectedGame.Status = ApplyStatus.Pending;
-        SelectedGame.Detail = "Нужно применить профиль";
+        game.ExePath = path;
+        game.Status = ApplyStatus.Pending;
+        game.Detail = "Нужно применить профиль";
         SaveOnly();
     }
 
@@ -45,38 +47,60 @@ public sealed partial class MainViewModel
         };
         return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
-    private void ImportSteam()
+    private async Task ImportSteamAsync()
     {
-        Run(() =>
+        if (_busy) return;
+        _busy = true;
+        IsApplyingAll = true;
+        try
         {
-            var result = GameImportService.MergeSteam(Games, _state.Backups, SteamDiscovery.FindInstalled());
+            var discovered = await Task.Run(() => SteamDiscovery.FindInstalled());
+            if (_disposed) return;
+            var result = GameImportService.MergeSteam(Games, _state.Backups, discovered);
             foreach (var game in result.AddedGames) Hook(game);
             RestoreGameSelection();
             Search = "";
             StatusFilter = "Все статусы";
             RefreshDisplays();
-            SaveOnly();
             Notice = result.Discovered == 0
                 ? "Steam: установленные игры не найдены. Проверьте путь к библиотеке Steam."
                 : $"Steam: найдено {result.Discovered}, добавлено {result.Added}, убрано дублей и утилит {result.Removed}. Для неоднозначных игр выберите .exe вручную.";
-        });
+        }
+        catch (Exception ex) { _store.Log(ex); Notice = "Ошибка импорта Steam: " + ex.Message; }
+        finally
+        {
+            _busy = false;
+            IsApplyingAll = false;
+            if (!_disposed) { SaveOnly(false); UpdateSummary(); }
+        }
     }
 
-    private void ImportEpic()
+    private async Task ImportEpicAsync()
     {
-        Run(() =>
+        if (_busy) return;
+        _busy = true;
+        IsApplyingAll = true;
+        try
         {
-            var result = GameImportService.MergeEpic(Games, EpicDiscovery.FindInstalled());
+            var discovered = await Task.Run(() => EpicDiscovery.FindInstalled());
+            if (_disposed) return;
+            var result = GameImportService.MergeEpic(Games, discovered);
             foreach (var game in result.AddedGames) Hook(game);
             RestoreGameSelection();
             Search = "";
             StatusFilter = "Все статусы";
             RefreshDisplays();
-            SaveOnly();
             Notice = result.Discovered == 0
                 ? "EGS: установленные игры не найдены. Проверьте установку Epic Games Launcher."
                 : $"EGS: найдено {result.Discovered}, добавлено {result.Added}, уже в библиотеке {result.Existing}. Для неоднозначных игр выберите .exe вручную.";
-        });
+        }
+        catch (Exception ex) { _store.Log(ex); Notice = "Ошибка импорта EGS: " + ex.Message; }
+        finally
+        {
+            _busy = false;
+            IsApplyingAll = false;
+            if (!_disposed) { SaveOnly(false); UpdateSummary(); }
+        }
     }
 
     /// <summary>

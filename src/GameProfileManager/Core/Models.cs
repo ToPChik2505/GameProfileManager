@@ -148,29 +148,34 @@ public sealed class GameEntry : Observable
     [JsonIgnore] public string VrrDisplay { get; set; } = "—";
     [JsonIgnore] public string VSyncDisplay { get; set; } = "—";
     [JsonIgnore] public string RtssLimiterDisplay { get; set; } = "—";
-    private ImageSource? _icon;
+    private WeakReference<ImageSource>? _icon;
     private bool _iconResolved;
     private Func<GameEntry, ImageSource?>? _iconLoader;
 
     /// <summary>
     /// Иконка загружается только при первом обращении интерфейса, а не при каждом пересчёте состояния игр.
-    /// Отсутствующая иконка также запоминается, чтобы не повторять чтение файлов при каждом обновлении привязки.
+    /// Модель держит изображение слабой ссылкой: видимый элемент WPF удерживает его,
+    /// а скрытые карточки не сохраняют все декодированные изображения в памяти.
+    /// Отсутствующая иконка запоминается, чтобы не повторять чтение файла.
     /// </summary>
     [JsonIgnore]
     public ImageSource? Icon
     {
         get
         {
-            if (!_iconResolved && _iconLoader is not null)
+            if (_icon is not null && _icon.TryGetTarget(out var cached)) return cached;
+            if ((!_iconResolved || _icon is not null) && _iconLoader is not null)
             {
                 _iconResolved = true;
-                _icon = _iconLoader(this);
+                var loaded = _iconLoader(this);
+                _icon = loaded is null ? null : new WeakReference<ImageSource>(loaded);
+                return loaded;
             }
-            return _icon;
+            return null;
         }
         set
         {
-            _icon = value;
+            _icon = value is null ? null : new WeakReference<ImageSource>(value);
             _iconResolved = value is not null;
             Changed(nameof(Icon));
         }

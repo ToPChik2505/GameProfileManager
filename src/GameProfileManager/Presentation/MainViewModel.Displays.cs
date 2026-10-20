@@ -1,5 +1,6 @@
 using GameProfileManager.Core;
 using GameProfileManager.Integrations;
+using GameProfileManager.Application;
 
 namespace GameProfileManager;
 
@@ -13,7 +14,8 @@ public sealed partial class MainViewModel
             var found = WindowsDisplayDiscovery.Read();
             _displays.Clear();
             foreach (var display in found) _displays.Add(display);
-            _displayFingerprint = Fingerprint(found);
+            Volatile.Write(ref _displaySnapshot, found.ToArray());
+            _displayMonitor.Reset(found);
             UpdateDisplayOptions();
             DisplayStatus = found.Count == 0 ? "Windows не обнаружила активные экраны" :
                 found.Any(d => d.DynamicRefresh) ? "Обнаружена динамическая частота: автоматический лимит для неё недоступен" :
@@ -25,15 +27,17 @@ public sealed partial class MainViewModel
 
     private void PollDisplays()
     {
-        if (_busy) return;
+        if (_busy || _displayPollInFlight || _disposed) return;
+        _displayPollInFlight = true;
+        _ = PollDisplaysAsync();
+    }
+
+    private async Task PollDisplaysAsync()
+    {
         try
         {
-            var found = WindowsDisplayDiscovery.Read();
-            string fingerprint = Fingerprint(found);
-            if (fingerprint == _displayFingerprint) { _candidateFingerprint = ""; _candidateObservations = 0; return; }
-            if (fingerprint != _candidateFingerprint) { _candidateFingerprint = fingerprint; _candidateObservations = 1; return; }
-            if (++_candidateObservations < 2) return;
-            _candidateFingerprint = ""; _candidateObservations = 0;
+            var found = await Task.Run(WindowsDisplayDiscovery.Read);
+            if (_busy || _disposed || !_displayMonitor.Observe(found)) return;
             var previous = _displays.ToArray();
             var changed = Games.Where(game =>
             {
@@ -44,7 +48,7 @@ public sealed partial class MainViewModel
             }).ToArray();
             _displays.Clear();
             foreach (var display in found) _displays.Add(display);
-            _displayFingerprint = fingerprint;
+            Volatile.Write(ref _displaySnapshot, found.ToArray());
             UpdateDisplayOptions(); UpdateDisplaySummary(); UpdateFpsFractions(); RefreshDisplays();
             DisplayStatus = found.Count == 0 ? "Windows не обнаружила активные экраны" :
                 found.Any(d => d.DynamicRefresh) ? "Динамическая частота: автоматический лимит недоступен" :
@@ -54,6 +58,7 @@ public sealed partial class MainViewModel
             _ = ApplyDisplayChangesAsync(changed);
         }
         catch (Exception ex) { _store.Log(ex); DisplayStatus = "Ошибка проверки экрана: " + ex.Message; }
+        finally { _displayPollInFlight = false; }
     }
 
     /// <summary>
@@ -68,11 +73,16 @@ public sealed partial class MainViewModel
         SyncProgressPercent = 0;
         try
         {
+            SaveOnly(false, duringSync: true);
+            var snapshot = AppStateSnapshot.Capture(_state);
             for (int index = 0; index < changed.Length; index++)
             {
                 var game = changed[index];
                 SyncProgressMessage = $"Обновление лимита после смены экрана: {game.Name}";
-                await Task.Run(() => _sync.ApplyOne(_state, game));
+                var error = await _syncCoordinator.ExecuteAsync(snapshot, (service, state) =>
+                    service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)));
+                AppStateSnapshot.PublishResults(snapshot, _state);
+                if (error is not null) throw error;
                 SyncProgressPercent = 100d * (index + 1) / changed.Length;
             }
             Notice = changed.All(game => game.Status is ApplyStatus.Applied or ApplyStatus.RestartRequired)
@@ -88,14 +98,11 @@ public sealed partial class MainViewModel
         {
             _busy = false;
             IsApplyingAll = false;
+            SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
         }
     }
-
-    private static string Fingerprint(IEnumerable<DisplayInfo> displays) => string.Join("|",
-        displays.OrderBy(display => display.Id, StringComparer.OrdinalIgnoreCase).Select(display =>
-            $"{display.Id}:{display.Width}:{display.Height}:{display.RefreshNumerator}/{display.RefreshDenominator}:{display.IsPrimary}:{display.DynamicRefresh}"));
 
     private void UpdateDisplayOptions()
     {

@@ -19,18 +19,19 @@ internal static class FileIcon
                 var image = new BitmapImage();
                 image.BeginInit();
                 image.CacheOption = BitmapCacheOption.OnLoad;
+                image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
                 // 92 DIP в инспекторе при масштабе Windows 200% требуют около 184 физических пикселей.
                 // Декодирование до 192 уменьшает память изображения по сравнению с 256 без потери детализации в этом размере.
                 image.DecodePixelWidth = 192;
                 image.UriSource = new Uri(artwork);
                 image.EndInit();
                 image.Freeze();
-                // Steam sometimes caches only a 32x32 icon. Prefer the game's
-                // embedded icon in that case instead of enlarging the thumbnail.
+                // Иногда Steam хранит только значок 32x32. В этом случае
+                // используем встроенный значок игры вместо растягивания миниатюры.
                 if (image.PixelWidth >= 96 && image.PixelHeight >= 96) return image;
                 return Load(game.ExePath) ?? image;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException) { }
         }
         return Load(game.ExePath);
     }

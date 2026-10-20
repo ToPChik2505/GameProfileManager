@@ -215,10 +215,12 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     if (EpicDiscovery.FindInstalled().Count > 0)
     {
         epicButton!.Command.Execute(null);
+        WaitForImport(vm);
         var epicGame = vm.Games.Single(g => g.EpicAppName is not null);
         epicGame.ProfileId = vm.Profiles[0].Id;
         int count = vm.Games.Count;
         epicButton.Command.Execute(null);
+        WaitForImport(vm);
         Check(vm.Games.Count == count && epicGame.ProfileId == vm.Profiles[0].Id,
             "repeated EGS import preserves game assignment without duplicates");
         Check(new SqliteStateStore(Path.Combine(output, "state")).Load().Games.Any(g => g.EpicAppName == epicGame.EpicAppName),
@@ -581,6 +583,13 @@ static void CheckBusyWorkflow(string output)
     window.Show();
     Pump();
 
+    int crossThreadChanges = 0;
+    foreach (var game in vm.Games)
+        game.PropertyChanged += (_, _) =>
+        {
+            if (!window.Dispatcher.CheckAccess()) Interlocked.Increment(ref crossThreadChanges);
+        };
+
     vm.ApplyCommand.Execute(null);
     Pump();
     Check(vm.IsApplyingAll && vm.SyncProgressMessage.Contains("Игра"), "apply all runs asynchronously with a clear game message");
@@ -613,6 +622,7 @@ static void CheckBusyWorkflow(string output)
     }
     Check(!vm.IsApplyingAll && vm.SyncProgressPercent == 100 && vm.Games.All(game => game.Status == ApplyStatus.Applied),
         "all games finish and progress reaches 100 percent");
+    Check(crossThreadChanges == 0, "bound game notifications stay on the WPF dispatcher during background apply");
     Pump();
     Console.WriteLine($"Busy completion: notice={vm.Notice}, command={vm.ApplyCommand.CanExecute(null)}, button={Find<Button>(window).Single(button => Equals(button.Content, "Применить ко всем")).IsEnabled}");
     Check(Find<Button>(window).Single(button => Equals(button.Content, "Применить ко всем")).IsEnabled &&
@@ -759,6 +769,17 @@ static void Pump()
     var frame = new DispatcherFrame();
     Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => frame.Continue = false));
     Dispatcher.PushFrame(frame);
+}
+
+static void WaitForImport(MainViewModel vm)
+{
+    var watch = Stopwatch.StartNew();
+    while (vm.IsApplyingAll && watch.Elapsed < TimeSpan.FromSeconds(15))
+    {
+        Thread.Sleep(20);
+        Pump();
+    }
+    Check(!vm.IsApplyingAll, "background import finishes before UI assertions");
 }
 
 static IEnumerable<T> Find<T>(DependencyObject root) where T : DependencyObject

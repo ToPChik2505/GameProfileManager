@@ -182,6 +182,23 @@ public sealed class SyncService
             nvidia = _nvidiaFactory();
             nvidia.ProbeWrite();
             var previousNvidia = nvidia.Read(game.ExePath);
+            // Совпадающие значения уже подтверждены чтением обеих интеграций.
+            // Не создаём новый бэкап и не записываем профиль повторно.
+            if (game.LastApplied is not null &&
+                state.Backups.Any(saved => saved.ManagedGameId == game.Id &&
+                    saved.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)) &&
+                rtssExisted && previousFps == targetFps && previousLimiterMode == (int)limiterMode &&
+                previousNvidia.ProfileExisted && previousNvidia.VrrExplicit &&
+                previousNvidia.VSyncExplicit && previousNvidia.FpsExplicit &&
+                previousNvidia.Vrr == (profile.Vrr == VrrMode.FixedRefresh ? NvidiaClient.FixedRefresh : NvidiaClient.AllowGSync) &&
+                previousNvidia.VSync == MapVSync(profile.VSync) && previousNvidia.Fps == 0)
+            {
+                bool restartRequired = game.Status == ApplyStatus.RestartRequired && IsGameRunning(game.ExePath);
+                game.Status = restartRequired ? ApplyStatus.RestartRequired : ApplyStatus.Applied;
+                game.Detail = "RTSS и NVIDIA: значения совпадают при чтении; " + fps.Detail +
+                    (restartRequired ? "; перезапустите игру" : "; работа VRR в игре не измерена");
+                return;
+            }
             snapshot = Snapshot(game, rtssExisted, previousFps, previousLimiterMode, previousNvidia);
 
             backup = state.Backups.FirstOrDefault(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase));
@@ -193,9 +210,9 @@ public sealed class SyncService
             }
             if (!backup.RtssCaptured) CopyRtss(snapshot, backup);
             else if (backup.RtssProfileExisted && backup.RtssSyncLimiter is null)
-                backup.RtssSyncLimiter = previousLimiterMode; // Existing backups predate this setting.
+                backup.RtssSyncLimiter = previousLimiterMode; // Старые бэкапы не содержат этот параметр.
             if (!backup.NvidiaCaptured) CopyNvidia(snapshot, backup);
-            _store.Save(state); // Both original values are durable before either integration is changed.
+            _store.Save(state); // Исходные значения обеих интеграций сохраняются до внешней записи.
 
             rtssAttempted = true;
             rtss.WriteSettings(exeName, targetFps, limiterMode);

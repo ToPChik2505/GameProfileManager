@@ -18,14 +18,17 @@ public sealed partial class MainViewModel : Observable, IDisposable
 {
     private readonly SqliteStateStore _store;
     private readonly SyncService _sync;
+    private readonly SyncOperationCoordinator _syncCoordinator;
     private readonly AppState _state;
+    private DisplayInfo[] _displaySnapshot = [];
+    private readonly DisplayChangeMonitor _displayMonitor = new();
+    private bool _displayPollInFlight;
+    private bool _rtssPollInFlight;
+    private bool _disposed;
     private readonly Dictionary<Guid, RtssLimiterMode> _effectiveRtssModes = new();
     private readonly ObservableCollection<DisplayInfo> _displays = new();
     private DisplayInfo? _selectedDisplay;
     private string _displayStatus = "Проверка экранов...";
-    private string _displayFingerprint = "";
-    private string _candidateFingerprint = "";
-    private int _candidateObservations;
     private string _search = "";
     private string _statusFilter = "Все статусы";
     private string _notice = "Готово";
@@ -282,7 +285,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
     {
         _store = store ?? new SqliteStateStore();
         _saveTimer.Tick += (_, _) => SaveOnly(false);
-        _sync = sync ?? new SyncService(_store, displayProvider: () => _displays.ToArray());
+        _sync = sync ?? new SyncService(_store, displayProvider: () => Volatile.Read(ref _displaySnapshot));
+        _syncCoordinator = new SyncOperationCoordinator(_sync);
         try { _state = _store.Load(); }
         catch (Exception ex) { _store.Log(ex); _state = new AppState(); Notice = "Ошибка чтения SQLite: " + ex.Message; }
         _state.Theme = _state.Theme == "Light" ? "Light" : "Dark";
@@ -345,34 +349,25 @@ public sealed partial class MainViewModel : Observable, IDisposable
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
         }, () => !_busy);
         AddGameCommand = new Command(AddGame, () => !_busy);
-        RemoveGameCommand = new Command(() =>
-        {
-            if (SelectedGame is null) return;
-            if (_state.Backups.Any(b => b.ExePath.Equals(SelectedGame.ExePath, StringComparison.OrdinalIgnoreCase)))
-            {
-                Run(() => _sync.Restore(_state, SelectedGame));
-                if (SelectedGame.Status == ApplyStatus.Error) { Notice = SelectedGame.Detail; return; }
-            }
-            Games.Remove(SelectedGame); SelectedGame = null; SaveOnly(); UpdateSummary();
-        }, () => !_busy);
-        ChooseExeCommand = new Command(ChooseExe, () => !_busy);
-        ImportSteamCommand = new Command(ImportSteam, () => !_busy);
-        ImportEpicCommand = new Command(ImportEpic, () => !_busy);
+        RemoveGameCommand = new Command(() => _ = RemoveSelectedGameAsync(), () => !_busy);
+        ChooseExeCommand = new Command(() => _ = ChooseExeAsync(), () => !_busy);
+        ImportSteamCommand = new Command(() => _ = ImportSteamAsync(), () => !_busy);
+        ImportEpicCommand = new Command(() => _ = ImportEpicAsync(), () => !_busy);
         ApplyCommand = new Command(() => _ = ApplyAllAsync(), () => !_busy);
-        ApplyGameCommand = new ParameterCommand(parameter => Run(() =>
+        ApplyGameCommand = new ParameterCommand(parameter =>
         {
             if (parameter is not GameEntry game) { Notice = "Выберите игру."; return; }
-            SaveOnly();
-            _sync.ApplyOne(_state, game);
-            RefreshDisplays();
-            Notice = game.Name + ": " + game.Detail;
-        }), () => !_busy);
-        VerifyCommand = new Command(() => Run(() => { _sync.CheckSaved(_state); RefreshDisplays(); SaveOnly(); Notice = "Проверка сохранённых параметров завершена."; }), () => !_busy);
-        RestoreCommand = new Command(() => Run(() =>
+            _ = RunSyncAsync((service, state) => service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)),
+                () => Notice = game.Name + ": " + game.Detail);
+        }, () => !_busy);
+        VerifyCommand = new Command(() => _ = RunSyncAsync((service, state) => service.CheckSaved(state),
+            () => Notice = "Проверка сохранённых параметров завершена."), () => !_busy);
+        RestoreCommand = new Command(() =>
         {
-            if (SelectedGame is null) { Notice = "Выберите игру."; return; }
-            _sync.Restore(_state, SelectedGame); RefreshDisplays(); Notice = SelectedGame.Status == ApplyStatus.Error ? SelectedGame.Detail : "Исходные параметры восстановлены.";
-        }), () => !_busy);
+            if (SelectedGame is not { } game) { Notice = "Выберите игру."; return; }
+            _ = RunSyncAsync((service, state) => service.Restore(state, state.Games.Single(item => item.Id == game.Id)),
+                () => Notice = game.Status == ApplyStatus.Error ? game.Detail : "Исходные параметры восстановлены.");
+        }, () => !_busy);
         BackupCommand = new Command(() => Run(() => Notice = "Резервная копия: " + _store.ExportBackup(_state)), () => !_busy);
         BrowseRtssCommand = new Command(() =>
         {
@@ -406,40 +401,98 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
     private void PollRtss()
     {
-        if (_busy) return;
+        if (_busy || _rtssPollInFlight || _disposed) return;
+        _rtssPollInFlight = true;
+        _ = PollRtssAsync();
+    }
+
+    private async Task PollRtssAsync()
+    {
         try
         {
-            bool running = RtssClient.ProcessIsRunning;
-            if (running == _lastRtssProcessState) return;
-            _lastRtssProcessState = running;
-            _sync.CheckIntegrations(_state);
-            _sync.CheckSaved(_state);
-            RefreshDisplays();
-            Notice = _sync.RtssReady
-                ? "RTSS снова запущен. Проверьте профили и при необходимости примените их."
-                : "RTSS закрыт. Лимит FPS сейчас не действует.";
-            _store.Save(_state);
-            UpdateSummary();
+            bool running = await Task.Run(() => RtssClient.ProcessIsRunning);
+            if (_busy || _disposed || running == _lastRtssProcessState) return;
+            bool completed = await RunSyncAsync((service, state) => { service.CheckIntegrations(state); service.CheckSaved(state); },
+                () => Notice = _sync.RtssReady
+                    ? "RTSS снова запущен. Проверьте профили и при необходимости примените их."
+                    : "RTSS закрыт. Лимит FPS сейчас не действует.");
+            if (completed) _lastRtssProcessState = running;
         }
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка проверки RTSS: " + ex.Message; }
+        finally { _rtssPollInFlight = false; }
     }
 
     public void Dispose()
     {
+        _disposed = true;
         _rtssTimer.Stop();
         if (_saveTimer.IsEnabled) SaveOnly(false);
     }
 
     private void ScheduleSave()
     {
+        if (_busy) return;
         _saveTimer.Stop();
         _saveTimer.Start();
     }
-    private void SaveOnly(bool announce = true)
+    private void SaveOnly(bool announce = true, bool duringSync = false)
     {
+        if (_busy && !duringSync) return;
         _saveTimer.Stop();
         try { _store.Save(_state); if (announce) Notice = "Конфигурация сохранена."; }
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка сохранения: " + ex.Message; }
+        UpdateSummary();
+    }
+
+    /// <summary>
+    /// Сохраняет конфигурацию перед внешней операцией и публикует её результат
+    /// только после возврата на поток WPF. Блокировка команд действует до записи
+    /// окончательного состояния и исключает конкурирующее сохранение SQLite.
+    /// </summary>
+    private async Task<bool> RunSyncAsync(Action<SyncService, AppState> operation, Action? completed = null)
+    {
+        if (_busy) return false;
+        _busy = true;
+        IsApplyingAll = true;
+        try
+        {
+            SaveOnly(false, duringSync: true);
+            var snapshot = AppStateSnapshot.Capture(_state);
+            var error = await _syncCoordinator.ExecuteAsync(snapshot, operation);
+            AppStateSnapshot.PublishResults(snapshot, _state);
+            if (error is not null) throw error;
+            completed?.Invoke();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _store.Log(ex);
+            Notice = "Операция прервана: " + ex.Message;
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+            IsApplyingAll = false;
+            SaveOnly(false);
+            RefreshDisplays();
+            UpdateSummary();
+        }
+    }
+
+    private async Task RemoveSelectedGameAsync()
+    {
+        if (_busy || SelectedGame is not { } game) return;
+        if (_state.Backups.Any(backup => backup.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            bool completed = await RunSyncAsync((service, state) =>
+                service.Restore(state, state.Games.Single(item => item.Id == game.Id)));
+            if (!completed || _state.Backups.Any(backup => backup.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+            { Notice = game.Detail; return; }
+        }
+        Games.Remove(game);
+        if (SelectedGame == game) SelectedGame = null;
+        SaveOnly();
         UpdateSummary();
     }
     private void Run(Action action)

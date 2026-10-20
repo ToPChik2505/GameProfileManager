@@ -1,4 +1,5 @@
 using GameProfileManager.Core;
+using GameProfileManager.Application;
 
 namespace GameProfileManager;
 
@@ -15,17 +16,19 @@ public sealed partial class MainViewModel
         Notice = checkSavedFirst ? "Проверяем настройки при запуске." : "Применяем профили. Окно остаётся доступным.";
         try
         {
-            SaveOnly(false);
+            SaveOnly(false, duringSync: true);
+            var snapshot = AppStateSnapshot.Capture(_state);
             if (checkSavedFirst)
             {
-                await Task.Run(() => _sync.CheckSaved(_state));
+                var checkError = await _syncCoordinator.ExecuteAsync(snapshot, (service, state) => service.CheckSaved(state));
+                AppStateSnapshot.PublishResults(snapshot, _state);
+                if (checkError is not null) throw checkError;
                 RefreshDisplays();
                 bool needsApply = Games.Any(game => game.Status != ApplyStatus.Applied && game.ProfileId is not null &&
                     !string.IsNullOrWhiteSpace(game.ExePath)) ||
                     Games.Any(game => game.ProfileId is null && _state.Backups.Any(backup => backup.ManagedGameId == game.Id));
                 if (!needsApply)
                 {
-                    SaveOnly(false);
                     Notice = "Проверка завершена: сохранённые параметры совпадают.";
                     return;
                 }
@@ -37,7 +40,10 @@ public sealed partial class MainViewModel
             {
                 var game = games[index];
                 SyncProgressMessage = $"Игра {index + 1} из {games.Length}: {game.Name}";
-                await Task.Run(() => _sync.ApplyOne(_state, game));
+                var error = await _syncCoordinator.ExecuteAsync(snapshot, (service, state) =>
+                    service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)));
+                AppStateSnapshot.PublishResults(snapshot, _state);
+                if (error is not null) throw error;
                 SyncProgressPercent = 100d * (index + 1) / games.Length;
                 UpdateSummary();
             }
@@ -55,6 +61,7 @@ public sealed partial class MainViewModel
         {
             _busy = false;
             IsApplyingAll = false;
+            SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
         }

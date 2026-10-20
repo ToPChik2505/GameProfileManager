@@ -1,4 +1,5 @@
 using GameProfileManager;
+using GameProfileManager.Application;
 using GameProfileManager.Core;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
@@ -93,6 +94,49 @@ try
 
     var store = new SqliteStateStore(Path.Combine(temp, "db"));
     var state = store.Load();
+    var snapshotGame = new GameEntry { Name = "Снимок", ExePath = @"C:\Games\Snapshot.exe" };
+    state.Games.Add(snapshotGame);
+    state.Backups.Add(new SettingBackup { ExePath = snapshotGame.ExePath, ManagedGameId = snapshotGame.Id,
+        RtssCaptured = true, RtssProfileExisted = true, RtssFps = 47, RtssSyncLimiter = 2,
+        NvidiaCaptured = true, NvidiaVrr = 4, NvidiaVrrExplicit = true });
+    var backgroundState = AppStateSnapshot.Capture(state);
+    Assert(!ReferenceEquals(backgroundState.Games[0], snapshotGame) &&
+           !ReferenceEquals(backgroundState.Profiles[0], state.Profiles[0]) &&
+           !ReferenceEquals(backgroundState.Backups[0], state.Backups[0]) &&
+           JsonSerializer.Serialize(backgroundState) == JsonSerializer.Serialize(state) &&
+           backgroundState.Backups[0].RtssFps == 47 && backgroundState.Backups[0].RtssSyncLimiter == 2 &&
+           backgroundState.Backups[0].NvidiaVrr == 4,
+        "background snapshot detaches games, profiles and original integration backups");
+    backgroundState.Games[0].Status = ApplyStatus.Applied;
+    backgroundState.Games[0].Detail = "Проверено";
+    backgroundState.Backups.Clear();
+    Assert(snapshotGame.Status == ApplyStatus.Pending && state.Backups.Count == 1,
+        "background changes do not touch UI models before publication");
+    AppStateSnapshot.PublishResults(backgroundState, state);
+    Assert(snapshotGame.Status == ApplyStatus.Applied && snapshotGame.Detail == "Проверено" &&
+           state.Games[0] == snapshotGame && state.Backups.Count == 0,
+        "completed results are published without replacing bound game instances");
+    state.Games.Remove(snapshotGame);
+    Console.WriteLine("PASS detached background state and UI publication");
+
+    var diagnosticState = new AppState();
+    var withoutExe = new GameEntry { Name = "Без EXE", ProfileId = Guid.NewGuid() };
+    var withBackup = new GameEntry { Name = "Снять профиль", ExePath = @"C:\Games\Old.exe" };
+    var missingExe = new GameEntry { Name = "Нет файла", ExePath = @"C:\Games\Missing.exe",
+        ProfileId = Guid.NewGuid(), Status = ApplyStatus.Error };
+    diagnosticState.Games.Add(withoutExe);
+    diagnosticState.Games.Add(withBackup);
+    diagnosticState.Games.Add(missingExe);
+    diagnosticState.Backups.Add(new SettingBackup { ManagedGameId = withBackup.Id, ExePath = withBackup.ExePath });
+    var findings = AttentionService.Analyze(diagnosticState, "RTSS закрыт", false,
+        "NVIDIA недоступна", _ => false);
+    Assert(findings.Count == 5 && findings[0].Target == AttentionTarget.Settings &&
+           findings[1].Target == AttentionTarget.Settings &&
+           findings.Any(issue => issue.Game == withoutExe && issue.Target == AttentionTarget.ChooseExe) &&
+           findings.Any(issue => issue.Game == withBackup && issue.Category == "ВОССТАНОВЛЕНИЕ") &&
+           findings.Any(issue => issue.Game == missingExe && issue.Advice.Contains("Файл игры не найден")),
+        "diagnostics classify integration, backup and executable issues without external writes");
+    Console.WriteLine("PASS read-only diagnostic findings");
     Assert(state.Profiles.Count == 3, "three starter profiles");
     Assert(state.RtssLimiterMode == RtssLimiterMode.FrontEdgeSync && (int)state.RtssLimiterMode == 1,
         "Front Edge Sync is the default RTSS limiter mode");
@@ -166,6 +210,15 @@ try
     var displayA = new DisplayInfo("a", "Экран A", @"\\.\DISPLAY1", 2560, 1440,
         120000, 1000, true, "DisplayPort", false, false);
     var displayB = displayA with { Id = "b", Name = "Экран B", IsPrimary = false, RefreshNumerator = 144000 };
+    var monitor = new DisplayChangeMonitor();
+    monitor.Reset([displayA]);
+    Assert(!monitor.Observe([displayB]) && !monitor.Observe([displayA]) &&
+           !monitor.Observe([displayB]) && monitor.Observe([displayB]) &&
+           !monitor.Observe([displayB]),
+        "display changes require two stable observations and ignore repeated events");
+    var renamedDisplay = displayB with { Name = "Новое имя экрана" };
+    Assert(!monitor.Observe([renamedDisplay]) && monitor.Observe([renamedDisplay]),
+        "display presentation changes update after the same stability check");
     var ratioProfile = new PerformanceProfile { Name = "Доля", FpsMode = FpsLimitMode.DisplayFraction,
         FpsDivisor = 3, Vrr = VrrMode.GSync };
     var ratioState = new AppState();
@@ -254,6 +307,12 @@ try
     Assert(single.Backups.Count == 1 && single.Backups[0].RtssFps == 45 && single.Backups[0].RtssSyncLimiter == 0 &&
            rtssFake.Fps == 73 && rtssFake.LimiterMode == 1,
         "single-game apply saves original settings before writing");
+    int unchangedRtssWrites = rtssFake.WriteCalls;
+    int unchangedNvidiaWrites = nvidiaFake.ApplyCalls;
+    sync.ApplyOne(single, single.Games[0]);
+    Assert(rtssFake.WriteCalls == unchangedRtssWrites && nvidiaFake.ApplyCalls == unchangedNvidiaWrites &&
+           single.Backups.Single().RtssFps == 45 && single.Backups.Single().RtssSyncLimiter == 0,
+        "matching readback skips both writes and preserves the original backup");
     single.RtssLimiterMode = RtssLimiterMode.NvidiaReflex;
     sync.CheckSaved(single);
     Assert(single.Games[0].Status == ApplyStatus.Pending, "changing the global RTSS mode makes applied games pending");
