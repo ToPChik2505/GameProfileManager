@@ -51,6 +51,7 @@ public sealed partial class MainViewModel
     {
         if (_busy) return;
         _busy = true;
+        SyncProgressMessage = "Поиск установленных игр Steam…";
         IsApplyingAll = true;
         try
         {
@@ -81,6 +82,7 @@ public sealed partial class MainViewModel
     {
         if (_busy) return;
         _busy = true;
+        SyncProgressMessage = "Поиск установленных игр Epic Games…";
         IsApplyingAll = true;
         try
         {

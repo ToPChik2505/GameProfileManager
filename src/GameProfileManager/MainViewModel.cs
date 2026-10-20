@@ -42,9 +42,11 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private PerformanceProfile? _selectedProfile;
     private bool _busy;
     private bool _isApplyingAll;
+    private bool _isActivityVisible;
     private string _syncProgressMessage = "";
     private double _syncProgressPercent;
     private readonly DispatcherTimer _rtssTimer = new();
+    private readonly DispatcherTimer _activityDelayTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private bool _lastRtssProcessState;
 
@@ -96,8 +98,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
         new(VSyncMode.On, ProfileLabels.VSync(VSyncMode.On)),
         new(VSyncMode.Off, ProfileLabels.VSync(VSyncMode.Off))
     ];
-    public string Search { get => _search; set { if (Set(ref _search, value)) GamesView.Refresh(); } }
-    public string StatusFilter { get => _statusFilter; set { if (Set(ref _statusFilter, value)) GamesView.Refresh(); } }
+    public string Search { get => _search; set { if (Set(ref _search, value)) RefreshGamesView(); } }
+    public string StatusFilter { get => _statusFilter; set { if (Set(ref _statusFilter, value)) RefreshGamesView(); } }
     public string[] StatusFilters { get; } = ["Все статусы", "Без профиля", "Нужен .exe", "Ожидает", "Применён", "Перезапустите", "Недоступно", "Ошибка"];
     public string Notice { get => _notice; set => Set(ref _notice, value); }
     public GameEntry? SelectedGame
@@ -152,6 +154,17 @@ public sealed partial class MainViewModel : Observable, IDisposable
         private set
         {
             if (!Set(ref _isApplyingAll, value)) return;
+            if (value)
+            {
+                IsActivityVisible = false;
+                _activityDelayTimer.Stop();
+                _activityDelayTimer.Start();
+            }
+            else
+            {
+                _activityDelayTimer.Stop();
+                IsActivityVisible = false;
+            }
             Changed(nameof(CanEdit));
             Changed(nameof(SelectedGameHasBackup));
             Changed(nameof(SelectedProfileIsEditable));
@@ -159,6 +172,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
     }
     public bool CanEdit => !IsApplyingAll;
+    public bool IsActivityVisible { get => _isActivityVisible; private set => Set(ref _isActivityVisible, value); }
     public string SyncProgressMessage { get => _syncProgressMessage; private set => Set(ref _syncProgressMessage, value); }
     public double SyncProgressPercent { get => _syncProgressPercent; private set => Set(ref _syncProgressPercent, value); }
     public string SelectedProfileHelp => SelectedProfile is { IsBuiltIn: true }
@@ -428,6 +442,11 @@ public sealed partial class MainViewModel : Observable, IDisposable
         _rtssTimer.Interval = TimeSpan.FromSeconds(2);
         _rtssTimer.Tick += (_, _) => { PollRtss(); PollDisplays(); };
         _rtssTimer.Start();
+        _activityDelayTimer.Tick += (_, _) =>
+        {
+            _activityDelayTimer.Stop();
+            if (IsApplyingAll) IsActivityVisible = true;
+        };
     }
 
     private void PollRtss()
@@ -457,9 +476,17 @@ public sealed partial class MainViewModel : Observable, IDisposable
     {
         _disposed = true;
         _rtssTimer.Stop();
+        _activityDelayTimer.Stop();
         if (_saveTimer.IsEnabled) SaveOnly(false);
         foreach (var pair in _profileHandlers.ToArray()) Unhook(pair.Key);
         foreach (var pair in _gameHandlers.ToArray()) Unhook(pair.Key);
+    }
+
+    private void RefreshGamesView()
+    {
+        GamesView.Refresh();
+        if (SelectedGameCard is not null && !GamesView.Contains(SelectedGameCard))
+            SelectedGame = null;
     }
 
     private void ScheduleSave()
@@ -486,6 +513,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
     {
         if (_busy) return false;
         _busy = true;
+        if (string.IsNullOrWhiteSpace(SyncProgressMessage) || !IsActivityVisible)
+            SyncProgressMessage = "Применение настроек…";
         IsApplyingAll = true;
         try
         {

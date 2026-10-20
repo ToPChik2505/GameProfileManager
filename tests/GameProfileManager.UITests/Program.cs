@@ -190,6 +190,15 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     filter!.SelectedItem = "Применён";
     Pump();
     Check(vm.StatusFilter == "Применён" && !vm.GamesView.Cast<object>().Any(), "status filter updates the game list");
+    var inspector = Find<ContentControl>(window).Single(control => control.Name == "GameInspector");
+    Check(vm.SelectedGame is null && !inspector.IsVisible &&
+          Find<TextBlock>(window).Single(block => block.Text == "Выберите игру").IsVisible,
+        "empty filtered list shows a clean inspector empty state without the game template underneath");
+    vm.Search = "нет такой игры";
+    Pump();
+    Check(!vm.GamesView.Cast<object>().Any() && !inspector.IsVisible,
+        "search with no matches keeps the inspector empty without layered content");
+    vm.Search = "";
     filter.SelectedItem = "Все статусы";
     Pump();
     list.SelectedItem = vm.GameCards[0];
@@ -603,6 +612,7 @@ static void CheckBusyWorkflow(string output)
     vm.ApplyCommand.Execute(null);
     Pump();
     Check(vm.IsApplyingAll && vm.SyncProgressMessage.Contains("Игра"), "apply all runs asynchronously with a clear game message");
+    Check(!vm.IsActivityVisible, "activity indicator stays hidden during its anti-flicker delay");
     var tabs = window.Content as TabControl ?? throw new Exception("busy window tabs missing");
     tabs.SelectedIndex = 2;
     Pump();
@@ -613,12 +623,14 @@ static void CheckBusyWorkflow(string output)
         "integration and editing commands are disabled during apply all");
     Check(Find<TextBlock>(window).Any(block => block.Text.Contains("Изменение настроек временно недоступно")),
         "loader explains why editing is disabled");
-    Capture(window, Path.Combine(output, "13-busy-apply.png"));
     tabs.SelectedIndex = 5;
     Pump();
     Check(!Find<ComboBox>(window).Single(menu => menu.Name == "ThemeMenu").IsEnabled &&
           !Find<ComboBox>(window).Single(menu => menu.Name == "RtssLimiterMenu").IsEnabled,
         "settings stay visible but cannot change during apply all");
+    PumpFor(400);
+    Check(vm.IsActivityVisible, "long-running operation reveals the compact activity status after the delay");
+    Capture(window, Path.Combine(output, "13-busy-apply.png"));
     tabs.SelectedIndex = 2;
     Pump();
     window.Close();
@@ -778,6 +790,15 @@ static void Pump()
 {
     var frame = new DispatcherFrame();
     Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => frame.Continue = false));
+    Dispatcher.PushFrame(frame);
+}
+
+static void PumpFor(int milliseconds)
+{
+    var frame = new DispatcherFrame();
+    var delay = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(milliseconds) };
+    delay.Tick += (_, _) => { delay.Stop(); frame.Continue = false; };
+    delay.Start();
     Dispatcher.PushFrame(frame);
 }
 

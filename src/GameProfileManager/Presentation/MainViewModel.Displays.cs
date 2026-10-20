@@ -69,6 +69,7 @@ public sealed partial class MainViewModel
     {
         if (_busy) return;
         _busy = true;
+        SyncProgressMessage = "Обновление лимитов после смены экрана…";
         IsApplyingAll = true;
         SyncProgressPercent = 0;
         try

@@ -247,21 +247,22 @@
             <Border.Style>
               <Style TargetType="Border">
                 <Setter Property="Visibility" Value="Collapsed"/>
-                <Style.Triggers><DataTrigger Binding="{Binding IsApplyingAll}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
+                <Style.Triggers><DataTrigger Binding="{Binding IsActivityVisible}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers>
               </Style>
             </Border.Style>
-            <StackPanel>
-              <Grid Margin="0,0,0,9">
+            <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="11" Padding="14,10">
+              <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <ProgressBar Width="44" Height="5" IsIndeterminate="True" Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource StrokeBrush}" BorderThickness="0" VerticalAlignment="Center" Margin="0,0,13,0"/>
-                <StackPanel Grid.Column="1">
-                  <TextBlock Text="{Binding SyncProgressMessage}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
-                  <TextBlock Text="Можно просматривать разделы. Изменение настроек временно недоступно." Style="{StaticResource Muted}" FontSize="11" Margin="0,3,0,0"/>
+                <Grid Width="18" Height="18" VerticalAlignment="Center" Margin="0,0,12,0">
+                  <Ellipse Stroke="{DynamicResource StrokeBrush}" StrokeThickness="2"/>
+                  <Ellipse Width="6" Height="6" Fill="{DynamicResource AccentBrush}" HorizontalAlignment="Right" VerticalAlignment="Top"/>
+                </Grid>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding SyncProgressMessage}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Text="Можно просматривать разделы. Изменение настроек временно недоступно." Style="{StaticResource Muted}" FontSize="10" Margin="0,2,0,0"/>
                 </StackPanel>
-                <TextBlock Grid.Column="2" Text="{Binding SyncProgressPercent, StringFormat='{}{0:0}%'}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0"/>
               </Grid>
-              <ProgressBar Height="3" Minimum="0" Maximum="100" Value="{Binding SyncProgressPercent, Mode=OneWay}" Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource StrokeBrush}" BorderThickness="0"/>
-            </StackPanel>
+            </Border>
           </Border>
           <ContentPresenter x:Name="PageContent" Grid.Row="4" ContentSource="SelectedContent" Margin="30,25,30,22"/>
           <Border Grid.Row="5" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="30,0">
@@ -492,7 +493,13 @@
           </Border>
           <Border Grid.Column="2" Style="{StaticResource Card}" Padding="0">
             <Grid>
-              <ContentControl Content="{Binding SelectedGameCard}">
+              <ContentControl x:Name="GameInspector" Content="{Binding SelectedGameCard}">
+                <ContentControl.Style>
+                  <Style TargetType="ContentControl">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers><DataTrigger Binding="{Binding SelectedGameCard}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+                  </Style>
+                </ContentControl.Style>
                 <ContentControl.ContentTemplate>
                   <DataTemplate>
                     <Grid>
