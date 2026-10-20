@@ -62,6 +62,7 @@ public partial class MainWindow : Window
         _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(RestoreWindow);
         ViewModel.PropertyChanged += ViewModelPropertyChanged;
         InitializeController();
+        IsVisibleChanged += (_, _) => _controllerInput.SetBackgroundMode(!IsVisible);
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;

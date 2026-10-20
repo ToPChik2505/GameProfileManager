@@ -39,6 +39,11 @@ internal static class ThemeManager
         if (System.Windows.Application.Current is not { } app) return;
         bool light = theme == "Light";
         foreach (var (key, pair) in Colors)
-            app.Resources[key] = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(light ? pair.Light : pair.Dark));
+        {
+            // Brush не изменяется после публикации; Freeze сокращает расходы WPF на отслеживание изменений.
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? pair.Light : pair.Dark));
+            brush.Freeze();
+            app.Resources[key] = brush;
+        }
     }
 }

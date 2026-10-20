@@ -19,8 +19,9 @@ internal static class FileIcon
                 var image = new BitmapImage();
                 image.BeginInit();
                 image.CacheOption = BitmapCacheOption.OnLoad;
-                // Keep enough pixels for the 64 DIP inspector image on high-DPI screens.
-                image.DecodePixelWidth = 256;
+                // 92 DIP в инспекторе при масштабе Windows 200% требуют около 184 физических пикселей.
+                // Декодирование до 192 уменьшает память изображения по сравнению с 256 без потери детализации в этом размере.
+                image.DecodePixelWidth = 192;
                 image.UriSource = new Uri(artwork);
                 image.EndInit();
                 image.Freeze();

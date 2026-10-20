@@ -99,7 +99,19 @@ internal interface IControllerSurface
 internal sealed class SdlControllerInput : IDisposable
 {
     private const uint InitGamepad = 0x00002000;
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    private const int ForegroundIntervalMs = 40;
+    private const int BackgroundIntervalMs = 100;
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(ForegroundIntervalMs) };
+
+    /// <summary>
+    /// В трее опрос выполняется реже ради экономии CPU, но не останавливается:
+    /// удержание Start+View / Options+Create должно по-прежнему возвращать окно.
+    /// </summary>
+    public void SetBackgroundMode(bool isBackground)
+    {
+        var interval = TimeSpan.FromMilliseconds(isBackground ? BackgroundIntervalMs : ForegroundIntervalMs);
+        if (_timer.Interval != interval) _timer.Interval = interval;
+    }
     private readonly Dictionary<uint, OpenPad> _pads = new();
     private bool _initialized;
     private long _nextEnumeration;
