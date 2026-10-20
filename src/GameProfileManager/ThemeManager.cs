@@ -41,7 +41,7 @@ internal static class ThemeManager
         foreach (var (key, pair) in Colors)
         {
             // Brush не изменяется после публикации; Freeze сокращает расходы WPF на отслеживание изменений.
-            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(light ? pair.Light : pair.Dark));
+            var brush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(light ? pair.Light : pair.Dark));
             brush.Freeze();
             app.Resources[key] = brush;
         }
