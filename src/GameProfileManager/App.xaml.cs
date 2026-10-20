@@ -13,8 +13,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        // UI smoke and other hosts reuse this WPF resource dictionary, but
-        // their process must not launch another copy of the application.
+        // UI smoke и другие хосты используют ресурсы WPF, но не должны
+        // запускать ещё один экземпляр приложения.
         if (Assembly.GetEntryAssembly() != typeof(App).Assembly)
         {
             base.OnStartup(e);
@@ -28,8 +28,8 @@ public partial class App : System.Windows.Application
         }
         if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
         {
-            // A verified, opt-in task can start the protected installed copy
-            // elevated without showing consent on every ordinary launch.
+            // Предварительно проверенная задача может запускать установленную
+            // защищённую копию с повышением без повторного подтверждения UAC.
             if (ElevatedLaunchTask.TryRun())
             {
                 Shutdown();

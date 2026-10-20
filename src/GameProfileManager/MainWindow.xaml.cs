@@ -198,11 +198,11 @@ public partial class MainWindow : Window
         var bounds = Marshal.PtrToStructure<MinMaxInfo>(lParam);
         bounds.MaxPosition.X = monitorInfo.Work.Left - monitorInfo.Monitor.Left;
         bounds.MaxPosition.Y = monitorInfo.Work.Top - monitorInfo.Monitor.Top;
-        // Reserve one physical pixel to keep WindowChrome's visible frame inside the work area.
+        // Один физический пиксель оставляет видимую рамку WindowChrome в рабочей области.
         bounds.MaxSize.X = monitorInfo.Work.Right - monitorInfo.Work.Left - 1;
         bounds.MaxSize.Y = monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1;
-        // Handling WM_GETMINMAXINFO bypasses WPF's minimum tracking size.
-        // Windows expects physical pixels here, while MinWidth/MinHeight are in DIPs.
+        // Обработка WM_GETMINMAXINFO обходит минимальный размер WPF.
+        // Windows ожидает здесь физические пиксели, а MinWidth/MinHeight заданы в DIP.
         var deviceScale = HwndSource.FromHwnd(hwnd)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
         bounds.MinTrackSize.X = Math.Max(bounds.MinTrackSize.X, (int)Math.Ceiling(MinWidth * deviceScale.M11));
         bounds.MinTrackSize.Y = Math.Max(bounds.MinTrackSize.Y, (int)Math.Ceiling(MinHeight * deviceScale.M22));
@@ -248,7 +248,7 @@ public partial class MainWindow : Window
         if (new WindowInteropHelper(this).Handle == IntPtr.Zero) return;
         var dark = ViewModel.Theme == "Dark" ? 1 : 0;
         DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int));
-        var roundedCorners = 2; // DWMWCP_ROUND on Windows 11
+        var roundedCorners = 2; // DWMWCP_ROUND в Windows 11.
         DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 33, ref roundedCorners, sizeof(int));
     }
 
@@ -271,7 +271,7 @@ public partial class MainWindow : Window
         if (FindParent<ComboBox>(e.OriginalSource as DependencyObject) is not { IsDropDownOpen: false } combo)
             return;
 
-        // Closed selectors must keep their current value. Let the surrounding page scroll instead.
+        // Закрытый список сохраняет выбор; прокручивается окружающая страница.
         e.Handled = true;
         if (FindParent<ScrollViewer>(VisualTreeHelper.GetParent(combo)) is { } scroller)
         {

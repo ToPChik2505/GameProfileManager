@@ -8,7 +8,7 @@ namespace GameProfileManager.Integrations;
 public static class SteamDiscovery
 {
     private static readonly Regex Field = new("\"(?<key>[^\"]+)\"\\s+\"(?<value>(?:\\\\.|[^\"])*)\"", RegexOptions.Compiled);
-    // Steam manifests also describe tools. These installed app IDs are known utilities.
+    // Манифесты Steam содержат и программы; эти ID принадлежат известным утилитам.
     public static readonly IReadOnlySet<string> NonGameAppIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "228980", // Steamworks Common Redistributables
@@ -75,7 +75,7 @@ public static class SteamDiscovery
             string path = Path.Combine(cache, file);
             if (File.Exists(path)) return path;
         }
-        // Some installed games only have Steam's hash-named 32x32 icon cached.
+        // Для некоторых игр Steam хранит только значок 32x32 с хешем вместо имени.
         try { return Directory.Exists(cache) ? Directory.EnumerateFiles(cache, "*.jpg").FirstOrDefault(path =>
             Path.GetFileNameWithoutExtension(path) is string name && name.Length == 40 && name.All(Uri.IsHexDigit)) : null; }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }

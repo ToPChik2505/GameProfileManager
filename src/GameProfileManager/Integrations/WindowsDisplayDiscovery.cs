@@ -6,7 +6,7 @@ namespace GameProfileManager.Integrations;
 
 public static class WindowsDisplayDiscovery
 {
-    private const uint QueryFlags = 0x2 | 0x10 | 0x40; // Active paths, virtual modes and Windows 11 dynamic refresh.
+    private const uint QueryFlags = 0x2 | 0x10 | 0x40; // Активные пути, виртуальные режимы и динамическая частота Windows 11.
 
     public static IReadOnlyList<DisplayInfo> Read()
     {
@@ -17,7 +17,7 @@ public static class WindowsDisplayDiscovery
             var paths = new PathInfo[pathCount];
             var modes = new ModeInfo[modeCount];
             result = QueryDisplayConfig(QueryFlags, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero);
-            if (result == 122) continue; // The topology changed while the buffers were allocated.
+            if (result == 122) continue; // Топология изменилась во время выделения буферов.
             if (result != 0) throw new Win32Exception(result, "Не удалось прочитать параметры экранов Windows.");
             var displays = new List<DisplayInfo>();
             foreach (var path in paths.Take((int)pathCount))

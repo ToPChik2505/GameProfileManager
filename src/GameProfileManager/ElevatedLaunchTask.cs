@@ -3,8 +3,8 @@ using System.Security.Principal;
 
 namespace GameProfileManager;
 
-// A Task Scheduler task is created only by an already elevated application.
-// Its action is limited to this executable in a protected installation folder.
+// Задача Планировщика создаётся только уже повышенным приложением.
+// Её действие ограничено этим EXE в защищённом каталоге установки.
 internal static class ElevatedLaunchTask
 {
     private static string UserSid => WindowsIdentity.GetCurrent().User?.Value
@@ -98,7 +98,7 @@ internal static class ElevatedLaunchTask
 
     private static bool IsProtectedInstall(string exe)
     {
-        // The action must not point to a user-writable Downloads/project folder.
+        // Действие не должно указывать на доступную пользователю папку загрузок или проекта.
         string full = Path.GetFullPath(exe);
         return new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) }

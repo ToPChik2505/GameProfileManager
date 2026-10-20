@@ -37,7 +37,7 @@ public partial class MainWindow
         };
         _controllerInput.ActionReceived += action =>
         {
-            // The long chord also restores a hidden window while another app has focus.
+            // Длительное сочетание возвращает скрытое окно, даже если активно другое приложение.
             if (action == ControllerAction.ToggleWindow)
             {
                 if (!IsVisible || WindowState == WindowState.Minimized) RestoreWindow();
@@ -45,7 +45,7 @@ public partial class MainWindow
                 SetControllerMode(true);
                 return;
             }
-            // Other actions only affect this application while its own window is in front.
+            // Остальные действия работают только при активном окне приложения.
             var windows = System.Windows.Application.Current.Windows.Cast<Window>().ToArray();
             if (!IsForegroundProcess() && !windows.Any(window => window.IsActive)) return;
             Window? dialog = windows.LastOrDefault(window => window is IControllerSurface && window.IsVisible);

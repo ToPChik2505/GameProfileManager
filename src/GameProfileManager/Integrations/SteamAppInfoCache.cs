@@ -3,7 +3,7 @@ using System.Text;
 
 namespace GameProfileManager.Integrations;
 
-// Steam's local appinfo cache supplies the app type omitted from appmanifest_*.acf.
+// Локальный кэш appinfo Steam содержит тип приложения, отсутствующий в appmanifest_*.acf.
 internal sealed class SteamAppInfoCache
 {
     private readonly byte[] _data = [];
@@ -43,12 +43,12 @@ internal sealed class SteamAppInfoCache
         if (_commonKey < 0 || _typeKey < 0 || !uint.TryParse(appId, out uint id)) return null;
         byte[] header = new byte[9];
         BinaryPrimitives.WriteUInt32LittleEndian(header, id);
-        header[4] = 0; // common KeyValues object
+        header[4] = 0; // Объект common в KeyValues.
         BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(5), _commonKey);
         int start = _data.AsSpan().IndexOf(header);
         if (start < 0) return null;
         byte[] typeKey = new byte[5];
-        typeKey[0] = 1; // string value
+        typeKey[0] = 1; // Строковое значение.
         BinaryPrimitives.WriteInt32LittleEndian(typeKey.AsSpan(1), _typeKey);
         int relative = _data.AsSpan(start + header.Length, Math.Min(512, _data.Length - start - header.Length)).IndexOf(typeKey);
         if (relative < 0) return null;

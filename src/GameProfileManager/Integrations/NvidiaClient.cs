@@ -3,7 +3,7 @@ using GameProfileManager.Core;
 
 namespace GameProfileManager.Integrations;
 
-// DRS layout and QueryInterface IDs are from NVIDIA's public NVAPI headers.
+// Разметка DRS и ID QueryInterface взяты из опубликованных заголовков NVIDIA NVAPI.
 public sealed class NvidiaClient : INvidiaSettings
 {
     public const uint VrrId = 0x10A879CF;
@@ -99,7 +99,7 @@ public sealed class NvidiaClient : INvidiaSettings
             {
                 VSyncMode.On => VSyncOn, VSyncMode.Off => VSyncOff, _ => VSyncApplication
             });
-            // RTSS is the sole driver-level FPS limiter managed by this app.
+            // RTSS остаётся единственным источником FPS-лимита, которым управляет приложение.
             SetDword(session.Handle, profile, NvidiaFpsId, 0);
             Check(_saveSettings(session.Handle), "NvAPI_DRS_SaveSettings");
         }
@@ -156,7 +156,7 @@ public sealed class NvidiaClient : INvidiaSettings
         IntPtr app = Allocate(AppSize, 4);
         try
         {
-            // V4 is required for the fully qualified executable lookup.
+            // V4 требуется для поиска по полному пути исполняемого файла.
             int status = _findApplication(session, Unicode(path), out var profile, app);
             if (status == -166) return IntPtr.Zero; // NVAPI_EXECUTABLE_NOT_FOUND
             Check(status, "NvAPI_DRS_FindApplicationByName");

@@ -80,7 +80,7 @@ public sealed class RtssClient : IRtssSettings
     public void ProbeWrite(string exeName, int? targetFps)
     {
         if (!IsRunning) throw new NotSupportedException("RTSS закрыт. Запустите RTSS перед применением профиля.");
-        // An existing RTSS profile may have an unlimited (zero) FPS limit. Preserve it on restore.
+        // Исходный профиль RTSS может иметь нулевой лимит (без ограничения); сохраняем его для восстановления.
         if (targetFps is < 0 or > 1000) throw new ArgumentOutOfRangeException(nameof(targetFps));
         string profiles = Path.Combine(InstallDirectory, "Profiles");
         if (!Directory.Exists(profiles)) throw new DirectoryNotFoundException("Папка профилей RTSS не найдена: " + profiles);
