@@ -144,6 +144,7 @@ public sealed class GameEntry : Observable
     public string DisplayId { get => _displayId; set => Set(ref _displayId, value ?? ""); }
     public DateTimeOffset? LastApplied { get; set; }
     [JsonIgnore] public string FpsDisplay { get; set; } = "—";
+    [JsonIgnore] public string ProfileDisplay { get; set; } = "Без профиля";
     [JsonIgnore] public string VrrDisplay { get; set; } = "—";
     [JsonIgnore] public string VSyncDisplay { get; set; } = "—";
     [JsonIgnore] public string RtssLimiterDisplay { get; set; } = "—";

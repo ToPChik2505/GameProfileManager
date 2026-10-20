@@ -803,14 +803,15 @@ public sealed class MainViewModel : Observable, IDisposable
         foreach (var game in Games)
         {
             var profile = Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
+            game.ProfileDisplay = profile?.Name ?? "Без профиля";
             game.FpsDisplay = profile is null ? "—" : DisplayFps.Resolve(_state, game, profile, displays).DisplayText;
             game.VrrDisplay = profile is null ? "—" : ProfileLabels.Vrr(profile.Vrr);
             game.VSyncDisplay = profile is null ? "—" : ProfileLabels.VSync(profile.VSync);
-            game.RtssLimiterDisplay = profile is null ? "RTSS: —" :
-                "RTSS: " + ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
+            game.RtssLimiterDisplay = profile is null ? "—" :
+                ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
                 (profile.RtssLimiterMode is null ? " · общий режим" : " · режим профиля");
             if (game.Icon is null) game.Icon = FileIcon.Load(game);
-            game.Changed(nameof(GameEntry.FpsDisplay)); game.Changed(nameof(GameEntry.VrrDisplay)); game.Changed(nameof(GameEntry.VSyncDisplay));
+            game.Changed(nameof(GameEntry.ProfileDisplay)); game.Changed(nameof(GameEntry.FpsDisplay)); game.Changed(nameof(GameEntry.VrrDisplay)); game.Changed(nameof(GameEntry.VSyncDisplay));
             game.Changed(nameof(GameEntry.RtssLimiterDisplay));
             game.Changed(nameof(GameEntry.Icon));
         }

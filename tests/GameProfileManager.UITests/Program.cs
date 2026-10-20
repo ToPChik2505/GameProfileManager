@@ -152,6 +152,8 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     tabs.SelectedIndex = 2;
     window.UpdateLayout();
     Check(vm.Games.Count == 1, "previously imported Steam utilities removed on startup");
+    Check(Find<Border>(window).Single(border => border.Name == "GameActionsFooter").CornerRadius is
+        { BottomLeft: 14, BottomRight: 14 }, "game inspector footer follows the card's rounded bottom corners");
     Capture(window, Path.Combine(output, "02-games.png"));
     window.UpdateLayout();
     Check(vm.Games.Count > 0, "sample game present");
@@ -432,8 +434,21 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     Pump();
     Check(window.Background is SolidColorBrush { Color: { R: < 50, G: < 50, B: < 50 } }, "dark theme restored");
 
-    window.Width = 1100;
-    window.Height = 690;
+    window.Width = 830;
+    window.Height = 720;
+    tabs.SelectedIndex = 2;
+    Pump();
+    window.UpdateLayout();
+    Check(window.ContentColumns == 1, "half-screen layout uses compact game cards");
+    Capture(window, Path.Combine(output, "07-half-games.png"));
+    tabs.SelectedIndex = 3;
+    Pump();
+    window.UpdateLayout();
+    Capture(window, Path.Combine(output, "07-half-profiles.png"));
+
+    window.Width = 800;
+    window.Height = 680;
+    Check(window.MinWidth == 800 && window.MinHeight == 680, "window stops resizing before the layout becomes unusable");
     string[] pages = ["07-min-overview.png", "08-min-screen.png", "09-min-games.png", "10-min-profiles.png", "11-min-attention.png", "12-min-settings.png"];
     for (int index = 0; index < pages.Length; index++)
     {
@@ -456,6 +471,11 @@ static void CheckCaption(MainWindow window, MainViewModel vm, string output)
 {
     Check(window.WindowStyle == WindowStyle.None && WindowChrome.GetWindowChrome(window) is { CaptionHeight: 70 },
         "custom title bar has drag and resize chrome");
+    long nativeStyle = GetWindowLongPtr(new WindowInteropHelper(window).Handle, -16).ToInt64();
+    const long nativeWindowControls = 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000;
+    Check((nativeStyle & nativeWindowControls) == nativeWindowControls,
+        "native resize, minimize and maximize styles remain available");
+    Check((nativeStyle & 0x00C00000) == 0, "native title bar is absent");
     var buttons = Find<Button>(window).Where(button => !string.IsNullOrEmpty(button.Name))
         .ToDictionary(button => button.Name);
     foreach (string name in new[] { "MinimizeCaptionButton", "MaximizeCaptionButton", "CloseCaptionButton" })
@@ -463,13 +483,15 @@ static void CheckCaption(MainWindow window, MainViewModel vm, string output)
             $"{name} is clickable inside window chrome");
     vm.MinimizeToTray = false;
     buttons["MaximizeCaptionButton"].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-    Check(window.WindowState == WindowState.Maximized, "custom maximize works");
     Pump();
-    CheckMaximizedWorkArea(window);
+    Check(window.WindowState == WindowState.Maximized, "custom maximize works");
     Capture(window, Path.Combine(output, "00-maximized-title.png"));
+    CheckMaximizedWorkArea(window);
     buttons["MaximizeCaptionButton"].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    Pump();
     Check(window.WindowState == WindowState.Normal, "custom restore works");
     buttons["MinimizeCaptionButton"].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    Pump();
     Check(window.WindowState == WindowState.Minimized, "custom minimize works");
     window.WindowState = WindowState.Normal;
     window.Activate();
@@ -483,13 +505,14 @@ static void CheckMaximizedWorkArea(MainWindow window)
     IntPtr monitor = MonitorFromWindow(hwnd, 2);
     var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
     Check(monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info), "monitor work area available");
-    Check(GetWindowRect(hwnd, out var windowRect), "maximized window rectangle available");
-    const int resizeFrameTolerance = 8;
-    Check(windowRect.Left >= info.Work.Left - resizeFrameTolerance &&
-          windowRect.Top >= info.Work.Top - resizeFrameTolerance &&
-          windowRect.Right <= info.Work.Right + resizeFrameTolerance &&
-          windowRect.Bottom <= info.Work.Bottom + resizeFrameTolerance,
-          "maximized window stays clear of this monitor's taskbar");
+    Check(DwmGetWindowAttribute(hwnd, 9, out var visibleRect, Marshal.SizeOf<NativeRect>()) == 0,
+        "maximized visible frame bounds available");
+    const int frameTolerance = 2;
+    Check(Math.Abs(visibleRect.Left - info.Work.Left) <= frameTolerance &&
+          Math.Abs(visibleRect.Top - info.Work.Top) <= frameTolerance &&
+          Math.Abs(visibleRect.Right - info.Work.Right) <= frameTolerance &&
+          Math.Abs(visibleRect.Bottom - info.Work.Bottom) <= frameTolerance,
+          "maximized visible frame fills this monitor's work area");
     IntPtr buffer = Marshal.AllocHGlobal(Marshal.SizeOf<MinMaxInfo>());
     try
     {
@@ -498,9 +521,13 @@ static void CheckMaximizedWorkArea(MainWindow window)
         var limits = Marshal.PtrToStructure<MinMaxInfo>(buffer);
         Check(limits.MaxPosition.X == info.Work.Left - info.Monitor.Left &&
               limits.MaxPosition.Y == info.Work.Top - info.Monitor.Top &&
-              limits.MaxSize.X == info.Work.Right - info.Work.Left &&
-              limits.MaxSize.Y == info.Work.Bottom - info.Work.Top,
+              limits.MaxSize.X == info.Work.Right - info.Work.Left - 1 &&
+              limits.MaxSize.Y == info.Work.Bottom - info.Work.Top - 1,
               "maximize bounds match this monitor's usable work area");
+        var scale = PresentationSource.FromVisual(window)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+        Check(limits.MinTrackSize.X >= (int)Math.Ceiling(window.MinWidth * scale.M11) &&
+              limits.MinTrackSize.Y >= (int)Math.Ceiling(window.MinHeight * scale.M22),
+              "native resize limits honor the WPF minimum size");
     }
     finally { Marshal.FreeHGlobal(buffer); }
 }
@@ -792,11 +819,12 @@ private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
 [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
 [return: MarshalAs(UnmanagedType.Bool)]
 private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
-[DllImport("user32.dll")]
-[return: MarshalAs(UnmanagedType.Bool)]
-private static extern bool GetWindowRect(IntPtr window, out NativeRect rectangle);
+[DllImport("dwmapi.dll")]
+private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out NativeRect rectangle, int size);
 [DllImport("user32.dll")]
 private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+[DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
 [DllImport("user32.dll")]
 [return: MarshalAs(UnmanagedType.Bool)]
 private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);

@@ -18,6 +18,13 @@ namespace GameProfileManager;
 
 public partial class MainWindow : Window
 {
+    public static readonly DependencyProperty ContentColumnsProperty = DependencyProperty.Register(
+        nameof(ContentColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(2));
+    public static readonly DependencyProperty OverviewStatColumnsProperty = DependencyProperty.Register(
+        nameof(OverviewStatColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(3));
+    public int ContentColumns { get => (int)GetValue(ContentColumnsProperty); private set => SetValue(ContentColumnsProperty, value); }
+    public int OverviewStatColumns { get => (int)GetValue(OverviewStatColumnsProperty); private set => SetValue(OverviewStatColumnsProperty, value); }
+
     private readonly Forms.NotifyIcon _trayIcon;
     private readonly Forms.ContextMenuStrip _trayMenu;
     private readonly Forms.ToolStripItem _verifyTrayItem;
@@ -34,6 +41,8 @@ public partial class MainWindow : Window
     public MainWindow(MainViewModel? viewModel)
     {
         InitializeComponent();
+        Loaded += (_, _) => UpdateResponsiveLayout();
+        SizeChanged += (_, _) => UpdateResponsiveLayout();
         DataContext = viewModel ?? new MainViewModel();
         _trayMenu = new Forms.ContextMenuStrip();
         _trayMenu.Items.Add("Открыть", null, (_, _) => Dispatcher.BeginInvoke(RestoreWindow));
@@ -56,6 +65,33 @@ public partial class MainWindow : Window
     }
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;
+
+    private void UpdateResponsiveLayout()
+    {
+        if (ActualWidth <= 0) return;
+        bool narrow = ActualWidth < 900;
+        bool medium = ActualWidth < 1150;
+        ContentColumns = narrow ? 1 : 2;
+        OverviewStatColumns = narrow ? 1 : 3;
+
+        GameListColumn.Width = new GridLength(narrow ? 170 : medium ? 260 : 360);
+        GameGapColumn.Width = new GridLength(narrow ? 10 : 18);
+        ProfileListColumn.Width = new GridLength(narrow ? 170 : medium ? 230 : 310);
+        ProfileGapColumn.Width = new GridLength(narrow ? 10 : 16);
+        DisplayListColumn.Width = new GridLength(narrow ? 170 : medium ? 210 : 280);
+        DisplayGapColumn.Width = new GridLength(narrow ? 10 : 16);
+
+        OverviewHeroArt.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
+        OverviewHeroArtColumn.Width = new GridLength(narrow ? 0 : 190);
+        OverviewStatsGrid.Margin = narrow ? new Thickness(0, 0, 0, 8) : new Thickness(0, 0, -15, 19);
+        OverviewGamesCard.Margin = OverviewProfilesCard.Margin = OverviewAttentionCard.Margin =
+            narrow ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 15, 0);
+        OverviewIntegrationsCard.Margin = narrow ? new Thickness(0, 0, 0, 12) : new Thickness(0);
+        OverviewHowCard.Margin = narrow ? new Thickness(0) : new Thickness(12, 0, 0, 0);
+
+        if (RootTabs.Template.FindName("PageContent", RootTabs) is ContentPresenter page)
+            page.Margin = narrow ? new Thickness(18, 18, 18, 14) : new Thickness(30, 25, 30, 22);
+    }
 
     private void ViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -124,10 +160,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private void MinimizeCaption_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void MinimizeCaption_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
 
-    private void MaximizeCaption_Click(object sender, RoutedEventArgs e) =>
-        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    private void MaximizeCaption_Click(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this);
+        else SystemCommands.MaximizeWindow(this);
+    }
 
     private void CloseCaption_Click(object sender, RoutedEventArgs e) => Close();
 
@@ -158,8 +197,14 @@ public partial class MainWindow : Window
         var bounds = Marshal.PtrToStructure<MinMaxInfo>(lParam);
         bounds.MaxPosition.X = monitorInfo.Work.Left - monitorInfo.Monitor.Left;
         bounds.MaxPosition.Y = monitorInfo.Work.Top - monitorInfo.Monitor.Top;
-        bounds.MaxSize.X = monitorInfo.Work.Right - monitorInfo.Work.Left;
-        bounds.MaxSize.Y = monitorInfo.Work.Bottom - monitorInfo.Work.Top;
+        // Reserve one physical pixel to keep WindowChrome's visible frame inside the work area.
+        bounds.MaxSize.X = monitorInfo.Work.Right - monitorInfo.Work.Left - 1;
+        bounds.MaxSize.Y = monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1;
+        // Handling WM_GETMINMAXINFO bypasses WPF's minimum tracking size.
+        // Windows expects physical pixels here, while MinWidth/MinHeight are in DIPs.
+        var deviceScale = HwndSource.FromHwnd(hwnd)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
+        bounds.MinTrackSize.X = Math.Max(bounds.MinTrackSize.X, (int)Math.Ceiling(MinWidth * deviceScale.M11));
+        bounds.MinTrackSize.Y = Math.Max(bounds.MinTrackSize.Y, (int)Math.Ceiling(MinHeight * deviceScale.M22));
         Marshal.StructureToPtr(bounds, lParam, false);
         handled = true;
         return IntPtr.Zero;
