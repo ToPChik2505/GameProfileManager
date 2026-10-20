@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameProfileManager/GameProfileManager.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameProfileManager.Tests/GameProfileManager.Tests.csproj" />
+    <Project Path="tests/GameProfileManager.IntegrationTests/GameProfileManager.IntegrationTests.csproj" />
+    <Project Path="tests/GameProfileManager.UITests/GameProfileManager.UITests.csproj" />
+  </Folder>
+</Solution>

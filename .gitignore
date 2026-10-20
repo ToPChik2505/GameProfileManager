@@ -11,7 +11,7 @@ GameProfileManager-win-x64*/
 # Готовые пакеты и исполняемые файлы
 *.exe
 *.dll
-!GameProfileManager/Native/SDL3.dll
+!src/GameProfileManager/Native/SDL3.dll
 *.pdb
 *.zip
 *.nupkg
