@@ -9,9 +9,9 @@ namespace GameProfileManager;
 
 internal static class FileIcon
 {
-    public static ImageSource? Load(GameEntry game)
+    public static ImageSource? Load(string exePath, string? steamAppId)
     {
-        string? artwork = SteamDiscovery.FindArtwork(game.SteamAppId);
+        string? artwork = SteamDiscovery.FindArtwork(steamAppId);
         if (artwork is not null)
         {
             try
@@ -29,11 +29,11 @@ internal static class FileIcon
                 // Иногда Steam хранит только значок 32x32. В этом случае
                 // используем встроенный значок игры вместо растягивания миниатюры.
                 if (image.PixelWidth >= 96 && image.PixelHeight >= 96) return image;
-                return Load(game.ExePath) ?? image;
+                return Load(exePath) ?? image;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException) { }
         }
-        return Load(game.ExePath);
+        return Load(exePath);
     }
 
     public static ImageSource? Load(string path)

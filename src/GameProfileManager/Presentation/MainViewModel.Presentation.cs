@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using GameProfileManager.Core;
+using GameProfileManager.Presentation;
 
 namespace GameProfileManager;
 
@@ -7,8 +9,9 @@ public sealed partial class MainViewModel
 {
     private void Hook(PerformanceProfile profile)
     {
+        if (_profileHandlers.ContainsKey(profile)) return;
         _effectiveRtssModes[profile.Id] = RtssLimiterModeResolver.Resolve(_state, profile);
-        profile.PropertyChanged += (_, e) =>
+        PropertyChangedEventHandler handler = (_, e) =>
         {
             if (e.PropertyName == nameof(PerformanceProfile.RtssLimiterMode))
             {
@@ -42,16 +45,20 @@ public sealed partial class MainViewModel
                 ScheduleSave();
             }
         };
+        _profileHandlers.Add(profile, handler);
+        profile.PropertyChanged += handler;
     }
     private void Hook(GameEntry game)
     {
-        game.ConfigureIconLoader(FileIcon.Load);
-        game.PropertyChanged += (_, e) =>
+        if (_gameHandlers.ContainsKey(game)) return;
+        var card = new GameEntryViewModel(game, _iconLoader);
+        _gameCards.Add(game, card);
+        GameCards.Add(card);
+        PropertyChangedEventHandler handler = (_, e) =>
         {
         if (e.PropertyName == nameof(GameEntry.Name)) { UpdateSummary(); ScheduleSave(); }
         if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
         {
-            if (e.PropertyName == nameof(GameEntry.ExePath)) game.Icon = null;
             game.Status = ApplyStatus.Pending;
             game.Detail = game.ProfileId is null
                 ? _state.Backups.Any(b => b.ManagedGameId == game.Id)
@@ -63,6 +70,22 @@ public sealed partial class MainViewModel
             else ScheduleSave();
         }
         };
+        _gameHandlers.Add(game, handler);
+        game.PropertyChanged += handler;
+    }
+    private void Unhook(PerformanceProfile profile)
+    {
+        if (_profileHandlers.Remove(profile, out var handler)) profile.PropertyChanged -= handler;
+        _effectiveRtssModes.Remove(profile.Id);
+    }
+    private void Unhook(GameEntry game)
+    {
+        if (_gameHandlers.Remove(game, out var handler)) game.PropertyChanged -= handler;
+        if (_gameCards.Remove(game, out var card))
+        {
+            card.Dispose();
+            GameCards.Remove(card);
+        }
     }
     private void RefreshDisplays()
     {

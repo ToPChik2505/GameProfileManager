@@ -1,5 +1,7 @@
 using GameProfileManager.Integrations;
 using GameProfileManager.Core;
+using GameProfileManager.Application;
+using GameProfileManager.Infrastructure;
 
 foreach (var display in WindowsDisplayDiscovery.Read())
     Console.WriteLine($"Windows display: {display.Name}, {display.ResolutionLabel}, {display.RefreshLabel}, signal={display.SignalRefreshLabel}, {display.Connection}, primary={display.IsPrimary}, dynamic={display.DynamicRefresh}");
@@ -77,7 +79,7 @@ if (args.Contains("--sync-test"))
     string exe = Path.Combine(temp, "GameProfileManagerSyncSmoke.exe");
     File.WriteAllBytes(exe, [0x4D, 0x5A]);
     var store = new GameProfileManager.Infrastructure.SqliteStateStore(Path.Combine(temp, "state"));
-    var service = new SyncService(store);
+    var service = SyncServiceFactory.Create(store);
     var profile = new PerformanceProfile { Name = "Smoke", Vrr = VrrMode.FixedRefresh, VSync = VSyncMode.On, FpsLimit = 41 };
     var game = new GameEntry { Name = "Smoke", ExePath = exe, ProfileId = profile.Id };
     var state = new AppState { RtssDirectory = Path.Combine(temp, "missing-rtss") };

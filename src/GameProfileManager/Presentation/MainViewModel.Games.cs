@@ -23,11 +23,11 @@ public sealed partial class MainViewModel
         string? path = SelectLocalFile("Выберите игровой процесс", "*.exe", game.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
         if (path is null) return;
         if (!game.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase) &&
-            _state.Backups.Any(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+            SettingBackupOwnership.HasForGame(_state, game))
         {
             bool completed = await RunSyncAsync((service, state) =>
                 service.Restore(state, state.Games.Single(item => item.Id == game.Id)));
-            if (!completed || _state.Backups.Any(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+            if (!completed || SettingBackupOwnership.HasForGame(_state, game))
             { Notice = game.Detail; return; }
         }
         game.ExePath = path;
@@ -54,9 +54,11 @@ public sealed partial class MainViewModel
         IsApplyingAll = true;
         try
         {
+            var previousGames = Games.ToArray();
             var discovered = await Task.Run(() => SteamDiscovery.FindInstalled());
             if (_disposed) return;
             var result = GameImportService.MergeSteam(Games, _state.Backups, discovered);
+            foreach (var removed in previousGames.Where(game => !Games.Contains(game))) Unhook(removed);
             foreach (var game in result.AddedGames) Hook(game);
             RestoreGameSelection();
             Search = "";

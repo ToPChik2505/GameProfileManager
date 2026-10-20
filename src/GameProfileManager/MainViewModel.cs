@@ -9,6 +9,7 @@ using GameProfileManager.Core;
 using GameProfileManager.Application;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
+using GameProfileManager.Presentation;
 using Microsoft.Win32;
 using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
@@ -16,9 +17,10 @@ namespace GameProfileManager;
 
 public sealed partial class MainViewModel : Observable, IDisposable
 {
-    private readonly SqliteStateStore _store;
+    private readonly IStateStore _store;
     private readonly SyncService _sync;
     private readonly SyncOperationCoordinator _syncCoordinator;
+    private readonly GameIconLoader _iconLoader;
     private readonly AppState _state;
     private DisplayInfo[] _displaySnapshot = [];
     private readonly DisplayChangeMonitor _displayMonitor = new();
@@ -26,6 +28,9 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private bool _rtssPollInFlight;
     private bool _disposed;
     private readonly Dictionary<Guid, RtssLimiterMode> _effectiveRtssModes = new();
+    private readonly Dictionary<PerformanceProfile, PropertyChangedEventHandler> _profileHandlers = new();
+    private readonly Dictionary<GameEntry, PropertyChangedEventHandler> _gameHandlers = new();
+    private readonly Dictionary<GameEntry, GameEntryViewModel> _gameCards = new();
     private readonly ObservableCollection<DisplayInfo> _displays = new();
     private DisplayInfo? _selectedDisplay;
     private string _displayStatus = "Проверка экранов...";
@@ -33,6 +38,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private string _statusFilter = "Все статусы";
     private string _notice = "Готово";
     private GameEntry? _selectedGame;
+    private GameEntryViewModel? _selectedGameCard;
     private PerformanceProfile? _selectedProfile;
     private bool _busy;
     private bool _isApplyingAll;
@@ -43,6 +49,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private bool _lastRtssProcessState;
 
     public ObservableCollection<GameEntry> Games => _state.Games;
+    public ObservableCollection<GameEntryViewModel> GameCards { get; } = new();
     public ObservableCollection<DisplayInfo> Displays => _displays;
     public ObservableCollection<ModeOption<string>> DefaultDisplayOptions { get; } = new();
     public ObservableCollection<ModeOption<string>> GameDisplayOptions { get; } = new();
@@ -93,9 +100,24 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public string StatusFilter { get => _statusFilter; set { if (Set(ref _statusFilter, value)) GamesView.Refresh(); } }
     public string[] StatusFilters { get; } = ["Все статусы", "Без профиля", "Нужен .exe", "Ожидает", "Применён", "Перезапустите", "Недоступно", "Ошибка"];
     public string Notice { get => _notice; set => Set(ref _notice, value); }
-    public GameEntry? SelectedGame { get => _selectedGame; set { if (Set(ref _selectedGame, value)) Changed(nameof(SelectedGameHasBackup)); } }
+    public GameEntry? SelectedGame
+    {
+        get => _selectedGame;
+        set
+        {
+            if (!Set(ref _selectedGame, value)) return;
+            _selectedGameCard = value is not null && _gameCards.TryGetValue(value, out var card) ? card : null;
+            Changed(nameof(SelectedGameCard));
+            Changed(nameof(SelectedGameHasBackup));
+        }
+    }
+    public GameEntryViewModel? SelectedGameCard
+    {
+        get => _selectedGameCard;
+        set => SelectedGame = value?.Model;
+    }
     public bool SelectedGameHasBackup => !IsApplyingAll && SelectedGame is not null &&
-        _state.Backups.Any(b => b.ExePath.Equals(SelectedGame.ExePath, StringComparison.OrdinalIgnoreCase));
+        SettingBackupOwnership.HasForGame(_state, SelectedGame);
     public PerformanceProfile? SelectedProfile
     {
         get => _selectedProfile;
@@ -281,14 +303,16 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ICommand BrowseRtssCommand { get; }
     public ICommand StartRtssCommand { get; }
 
-    public MainViewModel(SqliteStateStore? store = null, SyncService? sync = null)
+    public MainViewModel(IStateStore? store = null, SyncService? sync = null)
     {
         _store = store ?? new SqliteStateStore();
         _saveTimer.Tick += (_, _) => SaveOnly(false);
-        _sync = sync ?? new SyncService(_store, displayProvider: () => Volatile.Read(ref _displaySnapshot));
+        _sync = sync ?? SyncServiceFactory.Create(_store, () => Volatile.Read(ref _displaySnapshot));
         _syncCoordinator = new SyncOperationCoordinator(_sync);
+        // Ошибка чтения должна прервать запуск: пустое состояние нельзя сохранять поверх существующей базы.
         try { _state = _store.Load(); }
-        catch (Exception ex) { _store.Log(ex); _state = new AppState(); Notice = "Ошибка чтения SQLite: " + ex.Message; }
+        catch (Exception ex) { throw new StateLoadException(Path.Combine(_store.DirectoryPath, "profiles.db"), ex); }
+        _iconLoader = new GameIconLoader(Dispatcher.CurrentDispatcher, _store.Log);
         _state.Theme = _state.Theme == "Light" ? "Light" : "Dark";
         ThemeManager.Apply(_state.Theme);
         if (!_state.PresetNamesLocalized)
@@ -315,7 +339,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
         int obsoleteUtilities = 0;
         foreach (var utility in Games.Where(g => g.SteamAppId is not null && SteamDiscovery.NonGameAppIds.Contains(g.SteamAppId) &&
-                     g.ProfileId is null && !_state.Backups.Any(b => b.ManagedGameId == g.Id)).ToArray())
+                     g.ProfileId is null && !SettingBackupOwnership.HasForGame(_state, g)).ToArray())
         {
             Games.Remove(utility);
             obsoleteUtilities++;
@@ -325,10 +349,10 @@ public sealed partial class MainViewModel : Observable, IDisposable
             try { _store.Save(_state); Notice = $"Убрано служебных приложений Steam: {obsoleteUtilities}."; }
             catch (Exception ex) { _store.Log(ex); Notice = "Ошибка сохранения: " + ex.Message; }
         }
-        GamesView = CollectionViewSource.GetDefaultView(Games);
-        GamesView.Filter = item => item is GameEntry g &&
-            (string.IsNullOrWhiteSpace(Search) || g.Name.Contains(Search, StringComparison.OrdinalIgnoreCase) || g.ExePath.Contains(Search, StringComparison.OrdinalIgnoreCase)) &&
-            (StatusFilter == "Все статусы" || g.StatusLabel == StatusFilter);
+        GamesView = CollectionViewSource.GetDefaultView(GameCards);
+        GamesView.Filter = item => item is GameEntryViewModel card &&
+            (string.IsNullOrWhiteSpace(Search) || card.Name.Contains(Search, StringComparison.OrdinalIgnoreCase) || card.ExePath.Contains(Search, StringComparison.OrdinalIgnoreCase)) &&
+            (StatusFilter == "Все статусы" || card.StatusLabel == StatusFilter);
         ProfileOptions.Add(new ProfileOption(null));
         foreach (var profile in Profiles) ProfileOptions.Add(new ProfileOption(profile));
         AddProfileCommand = new Command(() => { var p = new PerformanceProfile(); Profiles.Add(p); ProfileOptions.Add(new ProfileOption(p)); Hook(p); SelectedProfile = p; SaveOnly(); UpdateSummary(); }, () => !_busy);
@@ -346,6 +370,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
             if (Games.Any(g => g.ProfileId == SelectedProfile.Id)) { Notice = "Сначала переназначьте игры этого профиля."; return; }
             _effectiveRtssModes.Remove(SelectedProfile.Id);
             ProfileOptions.Remove(ProfileOptions.Single(option => option.Id == SelectedProfile.Id));
+            Unhook(SelectedProfile);
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
         }, () => !_busy);
         AddGameCommand = new Command(AddGame, () => !_busy);
@@ -356,7 +381,13 @@ public sealed partial class MainViewModel : Observable, IDisposable
         ApplyCommand = new Command(() => _ = ApplyAllAsync(), () => !_busy);
         ApplyGameCommand = new ParameterCommand(parameter =>
         {
-            if (parameter is not GameEntry game) { Notice = "Выберите игру."; return; }
+            GameEntry? game = parameter switch
+            {
+                GameEntryViewModel card => card.Model,
+                GameEntry entry => entry,
+                _ => null
+            };
+            if (game is null) { Notice = "Выберите игру."; return; }
             _ = RunSyncAsync((service, state) => service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)),
                 () => Notice = game.Name + ": " + game.Detail);
         }, () => !_busy);
@@ -427,6 +458,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
         _disposed = true;
         _rtssTimer.Stop();
         if (_saveTimer.IsEnabled) SaveOnly(false);
+        foreach (var pair in _profileHandlers.ToArray()) Unhook(pair.Key);
+        foreach (var pair in _gameHandlers.ToArray()) Unhook(pair.Key);
     }
 
     private void ScheduleSave()
@@ -483,13 +516,14 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private async Task RemoveSelectedGameAsync()
     {
         if (_busy || SelectedGame is not { } game) return;
-        if (_state.Backups.Any(backup => backup.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+        if (SettingBackupOwnership.HasForGame(_state, game))
         {
             bool completed = await RunSyncAsync((service, state) =>
                 service.Restore(state, state.Games.Single(item => item.Id == game.Id)));
-            if (!completed || _state.Backups.Any(backup => backup.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)))
+            if (!completed || SettingBackupOwnership.HasForGame(_state, game))
             { Notice = game.Detail; return; }
         }
+        Unhook(game);
         Games.Remove(game);
         if (SelectedGame == game) SelectedGame = null;
         SaveOnly();

@@ -34,7 +34,7 @@ public static class GameImportService
                      game.SteamAppId is not null &&
                      SteamDiscovery.NonGameAppIds.Contains(game.SteamAppId) &&
                      game.ProfileId is null &&
-                     !backups.Any(backup => backup.ManagedGameId == game.Id)).ToArray())
+                     !SettingBackupOwnership.HasForGame(backups, game)).ToArray())
         {
             games.Remove(utility);
             removed++;
@@ -51,7 +51,7 @@ public static class GameImportService
             // к ней могут быть привязаны пользовательские настройки и идентификатор.
             if (manuallyAdded is not null && existing is not null &&
                 existing.ProfileId is null &&
-                !backups.Any(backup => backup.ManagedGameId == existing.Id))
+                !SettingBackupOwnership.HasForGame(backups, existing))
             {
                 games.Remove(existing);
                 existing = null;
@@ -65,7 +65,6 @@ public static class GameImportService
                 if (manuallyAdded.Name.Equals(Path.GetFileNameWithoutExtension(manuallyAdded.ExePath),
                         StringComparison.OrdinalIgnoreCase))
                     manuallyAdded.Name = game.Name;
-                manuallyAdded.Icon = null;
                 continue;
             }
 

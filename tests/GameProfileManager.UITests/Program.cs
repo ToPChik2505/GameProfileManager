@@ -13,8 +13,10 @@ using System.Windows.Shell;
 using System.Windows.Threading;
 using GameProfileManager;
 using GameProfileManager.Core;
+using GameProfileManager.Application;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
+using GameProfileManager.Presentation;
 
 internal static class Program
 {
@@ -50,6 +52,13 @@ var app = new App();
 app.InitializeComponent();
 app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 var vm = new MainViewModel(store);
+vm.AddProfileCommand.Execute(null);
+var removedProfile = vm.SelectedProfile!;
+vm.RemoveProfileCommand.Execute(null);
+removedProfile.Name = "Удалённый профиль";
+Check(!vm.ProfileOptions.Any(option => option.Id == removedProfile.Id),
+    "removed profile no longer retains a view model event handler");
+vm.SelectedProfile = vm.Profiles.First();
 var window = new MainWindow(vm);
 var frame = new DispatcherFrame();
 var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
@@ -158,7 +167,8 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     window.UpdateLayout();
     Check(vm.Games.Count > 0, "sample game present");
     Check(vm.Games.All(g => g.SteamAppId is not ("1812620" or "993090" or "228980")), "Steam utilities excluded");
-    Check(vm.Games.All(g => g.Icon is not null), "Steam artwork or local icon available for every imported game");
+    WaitForIcons(vm);
+    Check(vm.GameCards.All(game => game.Icon is not null), "Steam artwork or local icon available for every imported game");
     Check(!Find<Button>(window).Any(button => Equals(button.Content, "Сохранить")), "manual save button removed");
     vm.Games[0].Name = "Игра с автосохранением";
     Thread.Sleep(450);
@@ -172,7 +182,7 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     var list = Find<ListBox>(window).Single(box => box.Name == "GamesList");
     Check(list.Items.Count == vm.GamesView.Cast<object>().Count(), "inspector game list bound to imported games");
     var applyButton = Find<Button>(window).FirstOrDefault(button => Equals(button.Content, "Применить к игре"));
-    Check(applyButton?.CommandParameter is GameEntry entry && entry == vm.Games[0], "per-game apply button is bound to selected game");
+    Check(applyButton?.CommandParameter is GameEntryViewModel entry && entry.Model == vm.Games[0], "per-game apply button is bound to selected game");
     var filter = Find<ComboBox>(window).FirstOrDefault(c => c.ItemsSource is string[]);
     Check(filter is not null, "status filter found");
     OpenAndClose(filter!, Path.Combine(output, "06-status-menu.png"));
@@ -182,7 +192,7 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     Check(vm.StatusFilter == "Применён" && !vm.GamesView.Cast<object>().Any(), "status filter updates the game list");
     filter.SelectedItem = "Все статусы";
     Pump();
-    list.SelectedItem = vm.Games[0];
+    list.SelectedItem = vm.GameCards[0];
     Pump();
     Check(vm.SelectedGame == vm.Games[0], "game selection binding");
     var gameDisplayMenu = Find<ComboBox>(window).FirstOrDefault(c => c.Name == "GameDisplayMenu");
@@ -199,15 +209,15 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     var gameProfile = Find<ComboBox>(window).FirstOrDefault(c => c.Name == "GameProfileMenu");
     if (gameProfile is not null)
     {
-        var boundGame = gameProfile.DataContext as GameEntry ?? throw new Exception("Game profile menu has no game context");
+        var boundGame = gameProfile.DataContext as GameEntryViewModel ?? throw new Exception("Game profile menu has no game context");
         OpenAndClose(gameProfile, Path.Combine(output, "06b-profile-menu.png"));
         gameProfile.SelectedIndex = 1;
         Pump();
-        Check(boundGame.ProfileId == vm.Profiles[0].Id, "game profile assignment");
+        Check(boundGame.Model.ProfileId == vm.Profiles[0].Id, "game profile assignment");
         Capture(window, Path.Combine(output, "03a-game-profile-assigned.png"));
         gameProfile.SelectedIndex = 0;
         Pump();
-        Check(boundGame.ProfileId is null, "empty profile selection clears assignment");
+        Check(boundGame.Model.ProfileId is null, "empty profile selection clears assignment");
     }
     Capture(window, Path.Combine(output, "03-games-imported.png"));
     var epicButton = Find<Button>(window).FirstOrDefault(button => Equals(button.Content, "Импорт EGS"));
@@ -782,6 +792,17 @@ static void WaitForImport(MainViewModel vm)
     Check(!vm.IsApplyingAll, "background import finishes before UI assertions");
 }
 
+static void WaitForIcons(MainViewModel vm)
+{
+    var watch = Stopwatch.StartNew();
+    while (vm.GameCards.Any(game => game.Icon is null) && watch.Elapsed < TimeSpan.FromSeconds(15))
+    {
+        Thread.Sleep(20);
+        Pump();
+    }
+    Check(vm.GameCards.All(game => game.Icon is not null), "background icon loading finishes before UI assertions");
+}
+
 static IEnumerable<T> Find<T>(DependencyObject root) where T : DependencyObject
 {
     for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
@@ -877,6 +898,7 @@ sealed class SmokeNvidia : INvidiaSettings
 {
     public NvidiaSettingsSnapshot Read(string exePath)
         => default;
+    public bool Matches(NvidiaSettingsSnapshot current, PerformanceProfile desired) => false;
     public void ProbeWrite() { }
     public void Apply(GameEntry game, PerformanceProfile desired) { }
     public void Restore(string exePath, SettingBackup backup) { }

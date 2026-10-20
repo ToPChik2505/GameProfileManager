@@ -25,12 +25,11 @@ public static class AttentionService
                 "Проверьте драйвер NVIDIA и повторите проверку. Пока DRS недоступен, профили не применяются.",
                 AttentionTarget.Settings, null));
 
-        var backedUpGames = state.Backups.Select(backup => backup.ManagedGameId).ToHashSet();
         foreach (var game in state.Games)
         {
             if (game.ProfileId is null)
             {
-                if (backedUpGames.Contains(game.Id))
+                if (SettingBackupOwnership.HasForGame(state, game))
                     findings.Add(new("ВОССТАНОВЛЕНИЕ", game.Name, game.Detail,
                         "Профиль снят. Нажмите «Применить» у игры, чтобы восстановить исходные значения RTSS и NVIDIA.",
                         AttentionTarget.Game, game));

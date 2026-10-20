@@ -1,8 +1,8 @@
 using System.Diagnostics;
-using GameProfileManager.Application;
+using GameProfileManager.Core;
 using GameProfileManager.Integrations;
 
-namespace GameProfileManager.Core;
+namespace GameProfileManager.Application;
 
 public sealed class SyncService
 {
@@ -11,13 +11,13 @@ public sealed class SyncService
     private readonly Func<INvidiaSettings> _nvidiaFactory;
     private readonly Func<IReadOnlyList<DisplayInfo>> _displayProvider;
 
-    public SyncService(IStateStore store, Func<string?, IRtssSettings>? rtssFactory = null,
-        Func<INvidiaSettings>? nvidiaFactory = null, Func<IReadOnlyList<DisplayInfo>>? displayProvider = null)
+    public SyncService(IStateStore store, Func<string?, IRtssSettings> rtssFactory,
+        Func<INvidiaSettings> nvidiaFactory, Func<IReadOnlyList<DisplayInfo>>? displayProvider = null)
     {
         _store = store;
-        _rtssFactory = rtssFactory ?? (directory => new RtssClient(directory));
-        _nvidiaFactory = nvidiaFactory ?? (() => new NvidiaClient());
-        _displayProvider = displayProvider ?? WindowsDisplayDiscovery.Read;
+        _rtssFactory = rtssFactory;
+        _nvidiaFactory = nvidiaFactory;
+        _displayProvider = displayProvider ?? (() => []);
     }
 
     public string? NvidiaStatus { get; private set; }
@@ -96,8 +96,7 @@ public sealed class SyncService
                 var nvidia = nvidiaClient.Value;
                 var values = nvidia.Read(game.ExePath);
                 nvidiaAvailable = true;
-                nvidiaMatched = values.Vrr == (profile.Vrr == VrrMode.FixedRefresh ? NvidiaClient.FixedRefresh : NvidiaClient.AllowGSync) &&
-                    values.VSync == MapVSync(profile.VSync) && values.Fps == 0;
+                nvidiaMatched = nvidia.Matches(values, profile);
                 nvidiaDetail = nvidiaMatched ? "подтверждён" : "отличается";
             }
             catch (Exception ex) { nvidiaDetail = ex.Message; _store.Log(ex); }
@@ -200,10 +199,7 @@ public sealed class SyncService
                 state.Backups.Any(saved => saved.ManagedGameId == game.Id &&
                     saved.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase)) &&
                 rtssExisted && previousFps == targetFps && previousLimiterMode == (int)limiterMode &&
-                previousNvidia.ProfileExisted && previousNvidia.VrrExplicit &&
-                previousNvidia.VSyncExplicit && previousNvidia.FpsExplicit &&
-                previousNvidia.Vrr == (profile.Vrr == VrrMode.FixedRefresh ? NvidiaClient.FixedRefresh : NvidiaClient.AllowGSync) &&
-                previousNvidia.VSync == MapVSync(profile.VSync) && previousNvidia.Fps == 0)
+                nvidia.Matches(previousNvidia, profile))
             {
                 bool restartRequired = game.Status == ApplyStatus.RestartRequired && IsGameRunning(game.ExePath);
                 game.Status = restartRequired ? ApplyStatus.RestartRequired : ApplyStatus.Applied;
@@ -211,15 +207,19 @@ public sealed class SyncService
                     (restartRequired ? "; перезапустите игру" : "; работа VRR в игре не измерена");
                 return;
             }
-            snapshot = Snapshot(game, rtssExisted, previousFps, previousLimiterMode, previousNvidia);
+            snapshot = Snapshot(game, game.ExePath, rtssExisted, previousFps, previousLimiterMode, previousNvidia);
 
-            backup = state.Backups.FirstOrDefault(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase));
+            backup = SettingBackupOwnership.FindForGame(state, game);
+            if (backup is not null && !SettingBackupOwnership.SameExecutablePath(backup.ExePath, game.ExePath))
+                throw new InvalidOperationException("Путь игры изменён, но исходная резервная копия относится к прежнему EXE. Сначала восстановите прежние значения.");
             if (backup is null)
             {
                 backup = new SettingBackup { ExePath = game.ExePath, ManagedGameId = game.Id };
                 state.Backups.Add(backup);
                 createdBackup = true;
             }
+            else if (backup.ManagedGameId == Guid.Empty)
+                backup.ManagedGameId = game.Id;
             if (!backup.RtssCaptured) CopyRtss(snapshot, backup);
             else if (backup.RtssProfileExisted && backup.RtssSyncLimiter is null)
                 backup.RtssSyncLimiter = previousLimiterMode; // Старые бэкапы не содержат этот параметр.
@@ -256,8 +256,9 @@ public sealed class SyncService
 
     public void Restore(AppState state, GameEntry game)
     {
-        var backup = state.Backups.FirstOrDefault(b => b.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase))
+        var backup = SettingBackupOwnership.FindForGame(state, game)
             ?? throw new InvalidOperationException("Резервные значения для этой игры не найдены.");
+        if (backup.ManagedGameId == Guid.Empty) backup.ManagedGameId = game.Id;
         IRtssSettings? rtss = null;
         INvidiaSettings? nvidia = null;
         SettingBackup? snapshot = null;
@@ -268,7 +269,8 @@ public sealed class SyncService
             int? currentFps = null;
             int? currentLimiterMode = null;
             NvidiaSettingsSnapshot currentNvidia = default;
-            string exeName = Path.GetFileName(game.ExePath);
+            string backupExePath = backup.ExePath;
+            string exeName = Path.GetFileName(backupExePath);
             if (backup.RtssCaptured)
             {
                 if (backup.RtssProfileExisted && backup.RtssFps is null)
@@ -287,9 +289,9 @@ public sealed class SyncService
             {
                 nvidia = _nvidiaFactory();
                 nvidia.ProbeWrite();
-                currentNvidia = nvidia.Read(game.ExePath);
+                currentNvidia = nvidia.Read(backupExePath);
             }
-            snapshot = Snapshot(game, rtssExisted, currentFps, currentLimiterMode, currentNvidia);
+            snapshot = Snapshot(game, backupExePath, rtssExisted, currentFps, currentLimiterMode, currentNvidia);
             if (backup.RtssCaptured)
             {
                 rtssAttempted = true;
@@ -298,7 +300,7 @@ public sealed class SyncService
             if (backup.NvidiaCaptured)
             {
                 nvidiaAttempted = true;
-                nvidia!.Restore(game.ExePath, backup);
+                nvidia!.Restore(backupExePath, backup);
             }
             state.Backups.Remove(backup);
             game.Status = ApplyStatus.Pending;
@@ -308,7 +310,7 @@ public sealed class SyncService
         catch (Exception ex)
         {
             _store.Log(ex);
-            var rollbackErrors = snapshot is null ? [] : Rollback(game.ExePath, snapshot, rtss, nvidia, rtssAttempted, nvidiaAttempted);
+            var rollbackErrors = snapshot is null ? [] : Rollback(backup.ExePath, snapshot, rtss, nvidia, rtssAttempted, nvidiaAttempted);
             if (!state.Backups.Contains(backup)) state.Backups.Add(backup);
             game.Status = rollbackErrors.Count > 0 || rtssAttempted || nvidiaAttempted ? ApplyStatus.Error : FailureStatus(ex);
             game.Detail = rollbackErrors.Count > 0
@@ -338,12 +340,12 @@ public sealed class SyncService
         return errors;
     }
 
-    private static SettingBackup Snapshot(GameEntry game, bool rtssExisted, int? rtssFps, int? rtssLimiterMode,
+    private static SettingBackup Snapshot(GameEntry game, string exePath, bool rtssExisted, int? rtssFps, int? rtssLimiterMode,
         NvidiaSettingsSnapshot nvidia)
     {
         return new SettingBackup
         {
-            ExePath = game.ExePath, ManagedGameId = game.Id,
+            ExePath = exePath, ManagedGameId = game.Id,
             RtssProfileExisted = rtssExisted, RtssFps = rtssFps, RtssSyncLimiter = rtssLimiterMode, RtssCaptured = true,
             NvidiaProfileExisted = nvidia.ProfileExisted, NvidiaVrr = nvidia.Vrr, NvidiaVrrExplicit = nvidia.VrrExplicit,
             NvidiaVSync = nvidia.VSync, NvidiaVSyncExplicit = nvidia.VSyncExplicit,
@@ -382,6 +384,4 @@ public sealed class SyncService
     private static ApplyStatus FailureStatus(Exception ex) => ex is NotSupportedException or FileNotFoundException or
         DirectoryNotFoundException or DllNotFoundException ? ApplyStatus.Unsupported : ApplyStatus.Error;
 
-    private static uint MapVSync(VSyncMode value) => value switch
-    { VSyncMode.On => NvidiaClient.VSyncOn, VSyncMode.Off => NvidiaClient.VSyncOff, _ => NvidiaClient.VSyncApplication };
 }

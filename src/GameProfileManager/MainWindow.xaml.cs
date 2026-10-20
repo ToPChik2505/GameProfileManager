@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using GameProfileManager.Presentation;
 using GameProfileManager.Core;
 using Forms = System.Windows.Forms;
 using ComboBox = System.Windows.Controls.ComboBox;
@@ -354,8 +355,8 @@ public partial class MainWindow : Window
     private void GameDisplay_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { DataContext: GameEntry game, SelectedItem: ModeOption<string> option })
-            game.DisplayId = option.Value;
+            sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ModeOption<string> option })
+            game.Model.DisplayId = option.Value;
     }
 
     private void Fraction_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -367,8 +368,8 @@ public partial class MainWindow : Window
 
     private void GameProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is ComboBox { DataContext: GameEntry game, SelectedItem: ProfileOption option })
-            game.ProfileId = option.Id == Guid.Empty ? null : option.Id;
+        if (sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ProfileOption option })
+            game.Model.ProfileId = option.Id == Guid.Empty ? null : option.Id;
     }
 
     [DllImport("dwmapi.dll")]

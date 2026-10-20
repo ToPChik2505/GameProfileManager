@@ -60,18 +60,10 @@ try
     using var restartedInstance = new SingleInstanceCoordinator(instanceIdentity);
     Assert(restartedInstance.TryStart(() => { }), "mutex is released after the first instance exits");
     Console.WriteLine("PASS single instance mutex and activation signal");
-    // Ленивая загрузка не трогает файловую систему, пока WPF не запросит иконку.
-    var lazyIconGame = new GameEntry { Name = "Lazy icon" };
-    int iconLoads = 0;
-    lazyIconGame.ConfigureIconLoader(_ => { iconLoads++; return null; });
-    Assert(iconLoads == 0, "icon is not loaded during model initialization");
-    _ = lazyIconGame.Icon;
-    _ = lazyIconGame.Icon;
-    Assert(iconLoads == 1, "missing icon is not repeatedly loaded");
-    lazyIconGame.Icon = null;
-    _ = lazyIconGame.Icon;
-    Assert(iconLoads == 2, "icon is reloaded after explicit invalidation");
-    Console.WriteLine("PASS lazy artwork loading and invalidation");
+    Assert(typeof(GameEntry).GetProperty("Icon") is null &&
+           typeof(GameEntry).GetProperties().All(property => property.PropertyType.Namespace != "System.Windows.Media"),
+        "domain game model has no WPF image dependency");
+    Console.WriteLine("PASS domain model is independent from WPF images");
 
     var importedLibrary = new System.Collections.ObjectModel.ObservableCollection<GameEntry>();
     var manualGame = new GameEntry { Name = "Manual", ExePath = @"C:\\Games\\Sample.exe" };
@@ -194,12 +186,29 @@ try
         "display selection, tray preference and legacy manual FPS persist");
     Console.WriteLine("PASS SQLite roundtrip and centralized assignment");
 
+    string corruptDbDirectory = Path.Combine(temp, "corrupt-db");
+    Directory.CreateDirectory(corruptDbDirectory);
+    string corruptDbPath = Path.Combine(corruptDbDirectory, "profiles.db");
+    const string corruptDbContents = "not a SQLite database";
+    File.WriteAllText(corruptDbPath, corruptDbContents);
+    bool corruptDbRejected = false;
+    try { _ = new SqliteStateStore(corruptDbDirectory).Load(); }
+    catch (InvalidOperationException) { corruptDbRejected = true; }
+    Assert(corruptDbRejected && File.ReadAllText(corruptDbPath) == corruptDbContents,
+        "corrupt SQLite state is rejected without replacing the database");
+    var failingStore = new FailingStateStore(corruptDbDirectory);
+    bool startupBlocked = false;
+    try { _ = new MainViewModel(failingStore); }
+    catch (StateLoadException) { startupBlocked = true; }
+    Assert(startupBlocked && failingStore.SaveCalls == 0,
+        "view model aborts startup after a load error without saving a blank state");
+
     // An unassigned entry with an already completed backup must be removed on ApplyAll.
     var detached = new AppState();
     var detachedGame = new GameEntry { Name = "Detached", ExePath = @"C:\Games\Detached.exe" };
     detached.Games.Add(detachedGame);
     detached.Backups.Add(new SettingBackup { ExePath = detachedGame.ExePath, ManagedGameId = detachedGame.Id });
-    new SyncService(store).ApplyAll(detached);
+    new SyncService(store, _ => new FakeRtss(), () => new FakeNvidia()).ApplyAll(detached);
     Assert(detachedGame.ProfileId is null && detached.Backups.Count == 0, "clearing profile restores and drops saved backup");
     Console.WriteLine("PASS empty profile selection does not apply settings");
 
@@ -419,6 +428,46 @@ try
     Assert(legacyRtss.Fps == 45 && legacyRtss.LimiterMode == 2 && legacyBackupState.Backups.Count == 0,
         "legacy backup restores original FPS and captured limiter mode");
 
+    var duplicateExeState = SelectionState();
+    duplicateExeState.Games[1].ExePath = duplicateExeState.Games[0].ExePath;
+    duplicateExeState.Backups.Add(new SettingBackup
+    {
+        ExePath = exeA, ManagedGameId = duplicateExeState.Games[0].Id,
+        RtssCaptured = true, RtssProfileExisted = true, RtssFps = 45
+    });
+    var duplicateRestoreRtss = new FakeRtss { Exists = true, Fps = 73 };
+    var duplicateRestoreNvidia = new FakeNvidia();
+    var duplicateRestoreSync = new SyncService(store, _ => duplicateRestoreRtss, () => duplicateRestoreNvidia);
+    bool wrongOwnerBlocked = false;
+    try { duplicateRestoreSync.Restore(duplicateExeState, duplicateExeState.Games[1]); }
+    catch (InvalidOperationException) { wrongOwnerBlocked = true; }
+    Assert(wrongOwnerBlocked && duplicateRestoreRtss.RestoreCalls == 0 && duplicateRestoreNvidia.RestoreCalls == 0 &&
+           duplicateExeState.Backups.Single().ManagedGameId == duplicateExeState.Games[0].Id,
+        "restore never applies a different game's backup when EXE paths are duplicated");
+
+    var ambiguousLegacyState = SelectionState();
+    ambiguousLegacyState.Games[1].ExePath = ambiguousLegacyState.Games[0].ExePath;
+    ambiguousLegacyState.Backups.Add(new SettingBackup { ExePath = exeA, RtssCaptured = true, RtssFps = 45 });
+    wrongOwnerBlocked = false;
+    try { duplicateRestoreSync.Restore(ambiguousLegacyState, ambiguousLegacyState.Games[0]); }
+    catch (InvalidOperationException) { wrongOwnerBlocked = true; }
+    Assert(wrongOwnerBlocked && duplicateRestoreRtss.RestoreCalls == 0 && ambiguousLegacyState.Backups.Count == 1,
+        "legacy backup with multiple possible owners blocks restoration");
+
+    var foreignBackupState = new AppState();
+    foreignBackupState.Profiles.Add(selectedProfile);
+    var newOwnerCandidate = new GameEntry { Name = "Новая запись", ExePath = exeA, ProfileId = selectedProfile.Id };
+    foreignBackupState.Games.Add(newOwnerCandidate);
+    Guid previousOwnerId = Guid.NewGuid();
+    foreignBackupState.Backups.Add(new SettingBackup { ExePath = exeA, ManagedGameId = previousOwnerId,
+        RtssCaptured = true, RtssProfileExisted = true, RtssFps = 45 });
+    var foreignRtss = new FakeRtss { Exists = true, Fps = 45 };
+    var foreignNvidia = new FakeNvidia();
+    new SyncService(store, _ => foreignRtss, () => foreignNvidia).ApplyOne(foreignBackupState, newOwnerCandidate);
+    Assert(newOwnerCandidate.Status == ApplyStatus.Error && foreignRtss.WriteCalls == 0 && foreignNvidia.ApplyCalls == 0 &&
+           foreignBackupState.Backups.Single().ManagedGameId == previousOwnerId,
+        "a new game cannot overwrite settings owned by another game's backup");
+
     var blockedRtss = new FakeRtss { ProbeFailure = true };
     var untouchedNvidia = new FakeNvidia();
     var blockedState = SelectionState();
@@ -603,6 +652,7 @@ sealed class FakeRtss : IRtssSettings
     public bool ProbeFailure { get; set; }
     public bool FailAfterWrite { get; set; }
     public int WriteCalls { get; private set; }
+    public int RestoreCalls { get; private set; }
     public bool ProfileExists(string exeName) => Exists;
     public int? ReadFps(string exeName) => Fps;
     public int? ReadLimiterMode(string exeName) => LimiterMode;
@@ -617,7 +667,7 @@ sealed class FakeRtss : IRtssSettings
         if (FailAfterWrite) throw new InvalidOperationException("Сбой RTSS после записи");
     }
     public void Restore(string exeName, bool existed, int? previousFps, int? previousLimiterMode)
-    { Exists = existed; Fps = previousFps; LimiterMode = previousLimiterMode ?? LimiterMode; }
+    { RestoreCalls++; Exists = existed; Fps = previousFps; LimiterMode = previousLimiterMode ?? LimiterMode; }
     public void Dispose() { }
 }
 
@@ -659,8 +709,18 @@ sealed class FakeNvidia : INvidiaSettings
     public bool ProbeFailure { get; set; }
     public bool FailAfterApply { get; set; }
     public int ApplyCalls { get; private set; }
+    public int RestoreCalls { get; private set; }
     public NvidiaSettingsSnapshot Read(string exePath) =>
         new(ProfileExists, Vrr, ProfileExists, VSync, ProfileExists, Fps, ProfileExists);
+    public bool Matches(NvidiaSettingsSnapshot current, PerformanceProfile desired) =>
+        current.ProfileExisted && current.VrrExplicit && current.VSyncExplicit && current.FpsExplicit &&
+        current.Vrr == (desired.Vrr == VrrMode.FixedRefresh ? NvidiaClient.FixedRefresh : NvidiaClient.AllowGSync) &&
+        current.VSync == (desired.VSync switch
+        {
+            VSyncMode.On => NvidiaClient.VSyncOn,
+            VSyncMode.Off => NvidiaClient.VSyncOff,
+            _ => NvidiaClient.VSyncApplication
+        }) && current.Fps == 0;
     public void ProbeWrite()
     {
         if (ProbeFailure) throw new NotSupportedException("NVIDIA недоступна");
@@ -679,10 +739,21 @@ sealed class FakeNvidia : INvidiaSettings
     }
     public void Restore(string exePath, SettingBackup backup)
     {
+        RestoreCalls++;
         ProfileExists = backup.NvidiaProfileExisted;
         Vrr = backup.NvidiaVrr;
         VSync = backup.NvidiaVSync;
         Fps = backup.NvidiaFpsLimit;
     }
     public void Dispose() { }
+}
+
+sealed class FailingStateStore(string directoryPath) : IStateStore
+{
+    public string DirectoryPath { get; } = directoryPath;
+    public int SaveCalls { get; private set; }
+    public AppState Load() => throw new InvalidOperationException("База недоступна");
+    public void Save(AppState state) => SaveCalls++;
+    public string ExportBackup(AppState state) => "";
+    public void Log(Exception exception) { }
 }

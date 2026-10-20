@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
-using System.Windows.Media;
 
 namespace GameProfileManager.Core;
 
@@ -138,9 +137,12 @@ public sealed class GameEntry : Observable
         _ => "Ожидает"
     };
     public string Detail { get => _detail; set => Set(ref _detail, value); }
-    public string? SteamAppId { get; set; }
-    public string? EpicAppName { get; set; }
-    public string? InstallDirectory { get; set; }
+    private string? _steamAppId;
+    private string? _epicAppName;
+    private string? _installDirectory;
+    public string? SteamAppId { get => _steamAppId; set => Set(ref _steamAppId, value); }
+    public string? EpicAppName { get => _epicAppName; set => Set(ref _epicAppName, value); }
+    public string? InstallDirectory { get => _installDirectory; set => Set(ref _installDirectory, value); }
     public string DisplayId { get => _displayId; set => Set(ref _displayId, value ?? ""); }
     public DateTimeOffset? LastApplied { get; set; }
     [JsonIgnore] public string FpsDisplay { get; set; } = "—";
@@ -148,48 +150,6 @@ public sealed class GameEntry : Observable
     [JsonIgnore] public string VrrDisplay { get; set; } = "—";
     [JsonIgnore] public string VSyncDisplay { get; set; } = "—";
     [JsonIgnore] public string RtssLimiterDisplay { get; set; } = "—";
-    private WeakReference<ImageSource>? _icon;
-    private bool _iconResolved;
-    private Func<GameEntry, ImageSource?>? _iconLoader;
-
-    /// <summary>
-    /// Иконка загружается только при первом обращении интерфейса, а не при каждом пересчёте состояния игр.
-    /// Модель держит изображение слабой ссылкой: видимый элемент WPF удерживает его,
-    /// а скрытые карточки не сохраняют все декодированные изображения в памяти.
-    /// Отсутствующая иконка запоминается, чтобы не повторять чтение файла.
-    /// </summary>
-    [JsonIgnore]
-    public ImageSource? Icon
-    {
-        get
-        {
-            if (_icon is not null && _icon.TryGetTarget(out var cached)) return cached;
-            if ((!_iconResolved || _icon is not null) && _iconLoader is not null)
-            {
-                _iconResolved = true;
-                var loaded = _iconLoader(this);
-                _icon = loaded is null ? null : new WeakReference<ImageSource>(loaded);
-                return loaded;
-            }
-            return null;
-        }
-        set
-        {
-            _icon = value is null ? null : new WeakReference<ImageSource>(value);
-            _iconResolved = value is not null;
-            Changed(nameof(Icon));
-        }
-    }
-
-    /// <summary>
-    /// Назначает загрузчик изображений на уровне представления; не включает его в сериализуемое состояние.
-    /// </summary>
-    public void ConfigureIconLoader(Func<GameEntry, ImageSource?> loader)
-    {
-        ArgumentNullException.ThrowIfNull(loader);
-        _iconLoader = loader;
-        if (_icon is null) _iconResolved = false;
-    }
 }
 
 public sealed class SettingBackup

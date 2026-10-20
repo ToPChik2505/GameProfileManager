@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Security.Principal;
 using System.Windows;
+using GameProfileManager.Application;
 using MessageBox = System.Windows.MessageBox;
 
 namespace GameProfileManager;
@@ -67,8 +68,18 @@ public partial class App : System.Windows.Application
             return;
         }
         base.OnStartup(e);
-        MainWindow = new MainWindow();
-        MainWindow.Show();
+        try
+        {
+            MainWindow = new MainWindow();
+            MainWindow.Show();
+        }
+        catch (StateLoadException ex)
+        {
+            MessageBox.Show(
+                $"{ex.Message}\n\nПриложение завершит работу без сохранения пустого состояния. Проверьте доступ к файлу или восстановите резервную копию JSON.\n\nПричина: {ex.InnerException?.Message}",
+                "Game Profile Manager", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(-1);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

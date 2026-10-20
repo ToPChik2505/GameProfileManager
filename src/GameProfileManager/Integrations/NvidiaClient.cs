@@ -82,6 +82,16 @@ public sealed class NvidiaClient : INvidiaSettings
         return new NvidiaSettingsSnapshot(true, vrr.Value, vrr.Explicit, vsync.Value, vsync.Explicit, fps.Value, fps.Explicit);
     }
 
+    public bool Matches(NvidiaSettingsSnapshot current, PerformanceProfile desired) =>
+        current.ProfileExisted && current.VrrExplicit && current.VSyncExplicit && current.FpsExplicit &&
+        current.Vrr == (desired.Vrr == VrrMode.FixedRefresh ? FixedRefresh : AllowGSync) &&
+        current.VSync == (desired.VSync switch
+        {
+            VSyncMode.On => VSyncOn,
+            VSyncMode.Off => VSyncOff,
+            _ => VSyncApplication
+        }) && current.Fps == 0;
+
     public void ProbeWrite()
     {
         using var session = OpenSession();
@@ -104,8 +114,7 @@ public sealed class NvidiaClient : INvidiaSettings
             Check(_saveSettings(session.Handle), "NvAPI_DRS_SaveSettings");
         }
         var read = Read(game.ExePath);
-        if (read.Vrr != (desired.Vrr == VrrMode.FixedRefresh ? FixedRefresh : AllowGSync) ||
-            read.VSync != (desired.VSync switch { VSyncMode.On => VSyncOn, VSyncMode.Off => VSyncOff, _ => VSyncApplication }) || read.Fps != 0)
+        if (!Matches(read, desired))
             throw new InvalidOperationException("NVIDIA DRS не подтвердил сохранённые значения.");
     }
 

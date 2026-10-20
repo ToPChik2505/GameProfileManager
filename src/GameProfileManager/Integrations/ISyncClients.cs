@@ -30,6 +30,8 @@ public interface IRtssSettings : IDisposable
 public interface INvidiaSettings : IDisposable
 {
     NvidiaSettingsSnapshot Read(string exePath);
+    /// <summary>Проверяет ожидаемые значения профиля средствами соответствующей интеграции.</summary>
+    bool Matches(NvidiaSettingsSnapshot current, PerformanceProfile desired);
     void ProbeWrite();
     void Apply(GameEntry game, PerformanceProfile desired);
     void Restore(string exePath, SettingBackup backup);

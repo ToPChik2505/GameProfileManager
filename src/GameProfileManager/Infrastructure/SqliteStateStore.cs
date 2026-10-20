@@ -9,6 +9,8 @@ namespace GameProfileManager.Infrastructure;
 // Windows 11 содержит winsqlite3.dll. Один JSON-документ сохраняется в SQLite атомарно.
 public sealed class SqliteStateStore : IStateStore
 {
+    private const int SqliteRow = 100;
+    private const int SqliteDone = 101;
     public string DirectoryPath { get; }
     public SqliteStateStore(string? directoryPath = null) => DirectoryPath = directoryPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameProfileManager");
     public string DatabasePath => Path.Combine(DirectoryPath, "profiles.db");
@@ -23,9 +25,20 @@ public sealed class SqliteStateStore : IStateStore
         IntPtr stmt = Prepare(db.Handle, "SELECT payload FROM state WHERE id=1");
         try
         {
-            if (sqlite3_step(stmt) != 100) return NewState();
+            int result = sqlite3_step(stmt);
+            if (result == SqliteDone) return NewState();
+            if (result != SqliteRow) throw SqliteError(db.Handle, result, "чтение состояния");
             string? json = Marshal.PtrToStringUTF8(sqlite3_column_text(stmt, 0));
-            return json is null ? NewState() : JsonSerializer.Deserialize<AppState>(json, JsonOptions) ?? NewState();
+            if (json is null) throw new InvalidDataException($"В базе '{DatabasePath}' сохранено пустое состояние.");
+            try
+            {
+                return JsonSerializer.Deserialize<AppState>(json, JsonOptions) ??
+                    throw new InvalidDataException($"В базе '{DatabasePath}' сохранено пустое состояние.");
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidDataException($"Не удалось разобрать конфигурацию в базе '{DatabasePath}'.", ex);
+            }
         }
         finally { sqlite3_finalize(stmt); }
     }
@@ -39,8 +52,10 @@ public sealed class SqliteStateStore : IStateStore
         try
         {
             var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(state, JsonOptions));
-            if (sqlite3_bind_text(stmt, 1, bytes, bytes.Length, new IntPtr(-1)) != 0 || sqlite3_step(stmt) != 101)
-                throw new InvalidOperationException(Marshal.PtrToStringUTF8(sqlite3_errmsg(db.Handle)));
+            int bindResult = sqlite3_bind_text(stmt, 1, bytes, bytes.Length, new IntPtr(-1));
+            if (bindResult != 0) throw SqliteError(db.Handle, bindResult, "подготовка записи состояния");
+            int stepResult = sqlite3_step(stmt);
+            if (stepResult != SqliteDone) throw SqliteError(db.Handle, stepResult, "запись состояния");
         }
         finally { sqlite3_finalize(stmt); }
     }
@@ -85,15 +100,21 @@ public sealed class SqliteStateStore : IStateStore
     {
         var bytes = Encoding.UTF8.GetBytes(sql + "\0");
         int result = sqlite3_prepare_v2(db, bytes, -1, out var stmt, IntPtr.Zero);
-        if (result != 0) throw new InvalidOperationException(Marshal.PtrToStringUTF8(sqlite3_errmsg(db)));
+        if (result != 0) throw SqliteError(db, result, "подготовка SQL-команды");
         return stmt;
     }
     private static void Execute(IntPtr db, string sql)
     {
         var stmt = Prepare(db, sql);
-        try { if (sqlite3_step(stmt) != 101) throw new InvalidOperationException(Marshal.PtrToStringUTF8(sqlite3_errmsg(db))); }
+        try
+        {
+            int result = sqlite3_step(stmt);
+            if (result != SqliteDone) throw SqliteError(db, result, "выполнение SQL-команды");
+        }
         finally { sqlite3_finalize(stmt); }
     }
+    private static InvalidOperationException SqliteError(IntPtr db, int result, string operation) =>
+        new($"SQLite: ошибка {operation} (код {result}): {Marshal.PtrToStringUTF8(sqlite3_errmsg(db))}");
     private sealed class DbHandle(IntPtr handle) : IDisposable
     {
         public IntPtr Handle { get; } = handle;
