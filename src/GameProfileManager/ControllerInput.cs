@@ -22,7 +22,7 @@ public readonly record struct ControllerSnapshot(ulong Buttons, short LeftX = 0,
     public bool IsDown(ControllerButton button) => (Buttons & (1UL << (int)button)) != 0;
 }
 
-/// <summary>Maps SDL's positional gamepad controls to UI actions, with repeat only for navigation.</summary>
+/// <summary>Преобразует кнопки SDL в действия интерфейса; повторяет только навигацию.</summary>
 public sealed class ControllerActionMapper
 {
     private readonly Dictionary<ControllerAction, long> _nextRepeat = new();
@@ -101,6 +101,7 @@ internal sealed class SdlControllerInput : IDisposable
     private const uint InitGamepad = 0x00002000;
     private const int ForegroundIntervalMs = 40;
     private const int BackgroundIntervalMs = 100;
+    private static readonly ControllerButton[] PolledButtons = Enum.GetValues<ControllerButton>();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(ForegroundIntervalMs) };
 
     /// <summary>
@@ -159,15 +160,15 @@ internal sealed class SdlControllerInput : IDisposable
                 Enumerate();
                 _nextEnumeration = now + 700;
             }
-            foreach (var pad in _pads.Values.ToArray())
+            foreach (var pad in _pads.Values)
             {
                 if (!SDL_GamepadConnected(pad.Handle)) continue;
                 var snapshot = Read(pad.Handle);
                 foreach (var action in pad.Mapper.Update(snapshot, now))
                 {
                     SetStatus(pad.Name, true, pad.Type is 5 or 6 or 7);
-                    // A modal editor may open in the callback. Dispatch after polling returns so
-                    // the dialog never re-enters the current SDL polling stack.
+                    // Модальный редактор может открыться из обработчика. Отложенный вызов
+                    // не допускает повторного входа в текущий цикл опроса SDL.
                     _timer.Dispatcher.BeginInvoke(new Action(() =>
                     {
                         if (_initialized) ActionReceived?.Invoke(action);
@@ -219,7 +220,7 @@ internal sealed class SdlControllerInput : IDisposable
     private static ControllerSnapshot Read(IntPtr pad)
     {
         ulong buttons = 0;
-        foreach (ControllerButton button in Enum.GetValues<ControllerButton>())
+        foreach (ControllerButton button in PolledButtons)
             if (SDL_GetGamepadButton(pad, (int)button)) buttons |= 1UL << (int)button;
         return new ControllerSnapshot(buttons, SDL_GetGamepadAxis(pad, 0), SDL_GetGamepadAxis(pad, 1),
             SDL_GetGamepadAxis(pad, 3), SDL_GetGamepadAxis(pad, 4), SDL_GetGamepadAxis(pad, 5));
