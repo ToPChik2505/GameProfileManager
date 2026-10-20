@@ -20,6 +20,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private readonly IStateStore _store;
     private readonly SyncService _sync;
     private readonly SyncOperationCoordinator _syncCoordinator;
+    private DiagnosticsProbeSnapshot? _latestDiagnosticsProbe;
+    private string _diagnosticsStatus = "Диагностика ещё не запускалась";
     private readonly GameIconLoader _iconLoader;
     private readonly AppState _state;
     private DisplayInfo[] _displaySnapshot = [];
@@ -292,13 +294,14 @@ public sealed partial class MainViewModel : Observable, IDisposable
     }
     public string NvidiaStatus => _sync.NvidiaStatus ?? "Проверка...";
     public string RtssStatus => _sync.RtssStatus ?? "Проверка...";
-    public bool RtssWarningVisible => !_sync.RtssReady;
+    public bool RtssWarningVisible => _sync.RtssStatus is not null && !_sync.RtssReady;
     public string RtssWarning => _sync.RtssStatus + ". Ограничение FPS сейчас недоступно.";
     public string LastSync => _state.LastSync?.ToLocalTime().ToString("g") ?? "Никогда";
     public int ErrorCount => AttentionItems.Count;
     public int GameCount => Games.Count;
     public int ProfileCount => Profiles.Count;
     public string DataDirectory => _store.DirectoryPath;
+    public string DiagnosticsStatus { get => _diagnosticsStatus; private set => Set(ref _diagnosticsStatus, value); }
 
     public ICommand AddProfileCommand { get; }
     public ICommand DuplicateProfileCommand { get; }
@@ -316,6 +319,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ICommand BackupCommand { get; }
     public ICommand BrowseRtssCommand { get; }
     public ICommand StartRtssCommand { get; }
+    public ICommand DiagnosticsCommand { get; }
 
     public MainViewModel(IStateStore? store = null, SyncService? sync = null)
     {
@@ -417,7 +421,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         BrowseRtssCommand = new Command(() =>
         {
             string? path = SelectLocalFile("Выберите RTSSHooks64.dll", "RTSSHooks64.dll", RtssDirectory);
-            if (path is not null) { RtssDirectory = Path.GetDirectoryName(path)!; SaveOnly(); _sync.CheckIntegrations(_state); UpdateSummary(); }
+            if (path is not null) { RtssDirectory = Path.GetDirectoryName(path)!; SaveOnly(); _ = RefreshIntegrationStatusAsync(); }
         }, () => !_busy);
         StartRtssCommand = new Command(() => Run(() =>
         {
@@ -427,14 +431,15 @@ public sealed partial class MainViewModel : Observable, IDisposable
             Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = directory });
             Notice = "RTSS запускается. Состояние обновится автоматически.";
         }), () => !_busy);
+        DiagnosticsCommand = new Command(() => _ = RunDiagnosticsAsync(), () => !_busy);
         foreach (var p in Profiles) Hook(p);
         foreach (var g in Games) Hook(g);
         LoadDisplays();
         SelectedProfile = Profiles.FirstOrDefault();
         SelectedGame = Games.FirstOrDefault();
         RefreshDisplays();
-        _sync.CheckIntegrations(_state);
         UpdateSummary();
+        _ = RefreshIntegrationStatusAsync();
         if (_state.CheckAtStartup)
             Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => _ = ApplyAllAsync(checkSavedFirst: true)),
                 DispatcherPriority.Background);
@@ -542,6 +547,60 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
     }
 
+    private async Task RefreshIntegrationStatusAsync()
+    {
+        if (_disposed) return;
+        var snapshot = AppStateSnapshot.Capture(_state);
+        var error = await _syncCoordinator.ExecuteAsync(snapshot, (service, state) => service.CheckIntegrations(state));
+        if (_disposed) return;
+        if (error is not null) _store.Log(error);
+        Changed(nameof(NvidiaStatus));
+        Changed(nameof(RtssStatus));
+        Changed(nameof(RtssWarningVisible));
+        Changed(nameof(RtssWarning));
+        UpdateSummary();
+    }
+
+    private async Task RunDiagnosticsAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        SyncProgressMessage = "Проверяем игровые профили и подключения…";
+        IsApplyingAll = true;
+        DiagnosticsStatus = "Выполняется чтение RTSS, NVIDIA DRS и локальных параметров…";
+        try
+        {
+            SaveOnly(false, duringSync: true);
+            var stateSnapshot = AppStateSnapshot.Capture(_state);
+            DiagnosticsProbeSnapshot? probe = null;
+            var error = await _syncCoordinator.ExecuteAsync(stateSnapshot,
+                (service, state) => probe = service.CheckDiagnostics(state));
+            if (error is not null) throw error;
+            if (_disposed || probe is null) return;
+
+            AppStateSnapshot.PublishResults(stateSnapshot, _state);
+            _latestDiagnosticsProbe = probe;
+            DiagnosticsStatus = $"Проверено {probe.CheckedAt.ToLocalTime():g}. Проверка только читает настройки.";
+            Notice = "Диагностика завершена. Настройки RTSS и NVIDIA не изменялись.";
+        }
+        catch (Exception ex)
+        {
+            _store.Log(ex);
+            DiagnosticsStatus = "Проверка не завершена: " + ex.Message;
+            Notice = "Ошибка диагностики: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            IsApplyingAll = false;
+            if (!_disposed)
+            {
+                SaveOnly(false);
+                UpdateSummary();
+            }
+        }
+    }
+
     private async Task RemoveSelectedGameAsync()
     {
         if (_busy || SelectedGame is not { } game) return;
@@ -578,8 +637,9 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
 }
 
-public sealed record AttentionItem(string Category, string Title, string Detail, string Advice,
-    int PageIndex, string ActionLabel, GameEntry? Game);
+public sealed record AttentionItem(string Category, string Subject, string Title, string Detail, string Advice,
+    int PageIndex, string ActionLabel, GameEntry? Game, DiagnosticSeverity Severity,
+    DiagnosticRule RuleId, bool CanAutoFix);
 
 public sealed class Command(Action execute, Func<bool>? canExecute = null) : ICommand
 {

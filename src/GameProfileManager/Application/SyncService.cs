@@ -40,7 +40,24 @@ public sealed class SyncService
 
     public void CheckSaved(AppState state)
     {
+        CheckSaved(state, ReadDisplays(), null);
+    }
+
+    /// <summary>Собирает диагностические факты только чтением и обновляет статусы в отделённом снимке.</summary>
+    public DiagnosticsProbeSnapshot CheckDiagnostics(AppState state)
+    {
+        CheckIntegrations(state);
         var displays = ReadDisplays();
+        var observations = new Dictionary<Guid, GameDiagnosticsReadback>();
+        CheckSaved(state, displays, observations);
+        return new DiagnosticsProbeSnapshot(RtssStatus, RtssReady, NvidiaStatus,
+            NvidiaStatus?.StartsWith("NVAPI DRS доступен", StringComparison.OrdinalIgnoreCase) == true,
+            displays.ToArray(), observations, DateTimeOffset.Now);
+    }
+
+    private void CheckSaved(AppState state, IReadOnlyList<DisplayInfo> displays,
+        Dictionary<Guid, GameDiagnosticsReadback>? observations)
+    {
         // Клиенты создаются только при первой допустимой игре и используются
         // в пределах одного прохода; каждый Read по-прежнему открывает свежий DRS-сеанс.
         var rtssClient = new Lazy<IRtssSettings>(() => _rtssFactory(state.RtssDirectory));
@@ -49,6 +66,12 @@ public sealed class SyncService
         {
         foreach (var game in state.Games)
         {
+            var readback = new GameDiagnosticsReadback
+            {
+                ExecutableExists = !string.IsNullOrWhiteSpace(game.ExePath) && File.Exists(game.ExePath),
+                DuplicateExecutableName = !string.IsNullOrWhiteSpace(game.ExePath) && HasDuplicateExeName(state, game)
+            };
+            observations?.Add(game.Id, readback);
             var profile = state.Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
             if (profile is null || string.IsNullOrWhiteSpace(game.ExePath))
             {
@@ -58,28 +81,35 @@ public sealed class SyncService
                     : "Профиль не выбран: параметры не применяются";
                 continue;
             }
-            if (!File.Exists(game.ExePath)) { game.Status = ApplyStatus.Error; game.Detail = "Файл игры не найден"; continue; }
-            if (HasDuplicateExeName(state, game))
+            if (!readback.ExecutableExists) { game.Status = ApplyStatus.Error; game.Detail = "Файл игры не найден"; continue; }
+            if (readback.DuplicateExecutableName)
             { game.Status = ApplyStatus.Unsupported; game.Detail = "Несколько записей используют одно имя .exe в RTSS"; continue; }
             var fps = DisplayFps.Resolve(state, game, profile, displays);
+            readback.ExpectedRtssFps = fps.Fps;
             if (fps.Fps is null) { game.Status = ApplyStatus.Unsupported; game.Detail = fps.Detail; continue; }
             var limiterMode = RtssLimiterModeResolver.Resolve(state, profile);
             if (!Enum.IsDefined(limiterMode))
             { game.Status = ApplyStatus.Error; game.Detail = "Некорректный режим лимитера RTSS"; continue; }
+            readback.ExpectedRtssLimiterMode = (int)limiterMode;
 
             bool rtssMatched = false, nvidiaMatched = false, rtssAvailable = false, nvidiaAvailable = false;
             string rtssDetail = "", nvidiaDetail = "";
             try
             {
                 var rtss = rtssClient.Value;
+                readback.RtssAvailable = rtss.IsRunning;
                 if (!rtss.IsRunning) rtssDetail = "RTSS закрыт; лимит FPS сейчас не действует";
                 else
                 {
                     rtssAvailable = true;
                     string exeName = Path.GetFileName(game.ExePath);
                     bool exists = rtss.ProfileExists(exeName);
-                    bool fpsMatched = exists && rtss.ReadFps(exeName) == fps.Fps;
+                    int? actualFps = exists ? rtss.ReadFps(exeName) : null;
+                    readback.RtssProfileExists = exists;
+                    readback.ActualRtssFps = actualFps;
+                    bool fpsMatched = exists && actualFps == fps.Fps;
                     int? actualLimiterMode = exists ? rtss.ReadLimiterMode(exeName) : null;
+                    readback.ActualRtssLimiterMode = actualLimiterMode;
                     bool limiterMatched = exists && actualLimiterMode == (int)limiterMode;
                     rtssMatched = fpsMatched && limiterMatched;
                     string limiterDifference = "режим лимитера отличается (ожидается " +
@@ -90,16 +120,26 @@ public sealed class SyncService
                         !fpsMatched ? "лимит FPS отличается" : limiterDifference;
                 }
             }
-            catch (Exception ex) { rtssDetail = ex.Message; _store.Log(ex); }
+            catch (Exception ex) { readback.RtssAvailable = false; rtssDetail = ex.Message; _store.Log(ex); }
             try
             {
                 var nvidia = nvidiaClient.Value;
                 var values = nvidia.Read(game.ExePath);
                 nvidiaAvailable = true;
+                readback.NvidiaAvailable = true;
                 nvidiaMatched = nvidia.Matches(values, profile);
+                readback.NvidiaMatched = nvidiaMatched;
+                readback.ActualNvidiaVrr = values.Vrr;
+                readback.NvidiaVrrExplicit = values.VrrExplicit;
+                readback.ActualNvidiaVSync = values.VSync;
+                readback.NvidiaVSyncExplicit = values.VSyncExplicit;
+                readback.ActualNvidiaFpsLimit = values.Fps;
+                readback.NvidiaFpsLimitExplicit = values.FpsExplicit;
                 nvidiaDetail = nvidiaMatched ? "подтверждён" : "отличается";
             }
-            catch (Exception ex) { nvidiaDetail = ex.Message; _store.Log(ex); }
+            catch (Exception ex) { readback.NvidiaAvailable = false; nvidiaDetail = ex.Message; _store.Log(ex); }
+            readback.GameProcessRunning = IsGameRunning(game.ExePath);
+            readback.RestartRequired = game.Status == ApplyStatus.RestartRequired && readback.GameProcessRunning;
             game.Status = !rtssAvailable || !nvidiaAvailable ? ApplyStatus.Unsupported :
                 rtssMatched && nvidiaMatched ? ApplyStatus.Applied : ApplyStatus.Pending;
             game.Detail = $"RTSS: {rtssDetail}; NVIDIA: {nvidiaDetail}" +

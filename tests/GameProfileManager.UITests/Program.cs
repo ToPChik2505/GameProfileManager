@@ -356,10 +356,16 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
     Pump();
     Check(vm.AttentionItems.Any(item => item.Game == vm.Games[0]) && vm.ErrorCount == vm.AttentionItems.Count,
         "attention page includes an assigned game that still needs applying");
+    var diagnosticsButton = Find<Button>(window).Single(button => Equals(button.Content, "Проверить сейчас"));
+    Check(diagnosticsButton.Command == vm.DiagnosticsCommand && vm.AttentionItems.All(item => !item.CanAutoFix),
+        "diagnostics refresh is explicit and displayed findings do not auto-fix settings");
     Capture(window, Path.Combine(output, "05-attention.png"));
     var gameIssue = Find<Button>(window).FirstOrDefault(button => button.DataContext is AttentionItem { Game: not null });
     Check(gameIssue is not null, "attention item has an action");
-    gameIssue!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, gameIssue));
+    gameIssue!.Focus();
+    typeof(MainWindow).GetMethod("HandleControllerAction", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(window, [ControllerAction.Accept]);
+    Pump();
     Check(tabs.SelectedIndex == 2 && vm.SelectedGame == vm.Games[0], "attention action opens the affected game");
 
     tabs.SelectedIndex = 5;

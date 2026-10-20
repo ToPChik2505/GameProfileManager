@@ -1,6 +1,7 @@
 <Window x:Class="GameProfileManager.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:GameProfileManager.Application"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="Game Profile Manager" Width="1360" Height="860" MinWidth="800" MinHeight="680"
         WindowStartupLocation="CenterScreen" WindowStyle="None" ResizeMode="CanResize"
@@ -702,8 +703,15 @@
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel>
           <TextBlock Text="ДИАГНОСТИКА" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
-          <TextBlock Text="Требуют внимания" Style="{StaticResource PageTitle}"/>
-          <TextBlock Text="Здесь собраны проблемы интеграций и игры, для которых нужно действие." Style="{StaticResource Muted}" Margin="0,5,0,22"/>
+          <Grid Margin="0,0,0,22">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+              <TextBlock Text="Требуют внимания" Style="{StaticResource PageTitle}"/>
+              <TextBlock Text="Здесь собраны проверенные проблемы и осторожные рекомендации." Style="{StaticResource Muted}" Margin="0,5,0,5"/>
+              <TextBlock Text="{Binding DiagnosticsStatus}" Style="{StaticResource Muted}" FontSize="11"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="Проверить сейчас" Command="{Binding DiagnosticsCommand}" IsEnabled="{Binding CanEdit}" VerticalAlignment="Top"/>
+          </Grid>
           <Border Style="{StaticResource Card}" Margin="0,0,0,16" Padding="22,16">
             <StackPanel Orientation="Horizontal">
               <TextBlock Text="{Binding ErrorCount}" Foreground="{DynamicResource AccentBrush}" FontSize="23" FontWeight="SemiBold" Margin="0,0,12,0"/>
@@ -729,7 +737,10 @@
                   <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel Margin="0,0,22,0">
-                      <TextBlock Text="{Binding Category}" Style="{StaticResource Eyebrow}" Margin="0,0,0,7"/>
+                      <TextBlock Text="{Binding Category}" Margin="0,0,0,4">
+                        <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource Eyebrow}"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/><Style.Triggers><DataTrigger Binding="{Binding Severity}" Value="{x:Static app:DiagnosticSeverity.Error}"><Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/></DataTrigger><DataTrigger Binding="{Binding Severity}" Value="{x:Static app:DiagnosticSeverity.Warning}"><Setter Property="Foreground" Value="{DynamicResource WarningTextBrush}"/></DataTrigger><DataTrigger Binding="{Binding Severity}" Value="{x:Static app:DiagnosticSeverity.Info}"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                      </TextBlock>
+                      <TextBlock Text="{Binding Subject}" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,6" TextTrimming="CharacterEllipsis"/>
                       <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold"/>
                       <TextBlock Text="{Binding Detail}" Style="{StaticResource Muted}" FontSize="12" Margin="0,8,0,0"/>
                       <TextBlock Text="Что сделать" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" FontSize="12" Margin="0,15,0,4"/>

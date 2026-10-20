@@ -9,6 +9,7 @@ public sealed partial class MainViewModel
     private async Task ApplyAllAsync(bool checkSavedFirst = false)
     {
         if (_busy) return;
+        _latestDiagnosticsProbe = null;
         _busy = true;
         IsApplyingAll = true;
         SyncProgressPercent = 0;

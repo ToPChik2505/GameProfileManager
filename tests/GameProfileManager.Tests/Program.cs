@@ -111,24 +111,131 @@ try
     state.Games.Remove(snapshotGame);
     Console.WriteLine("PASS detached background state and UI publication");
 
-    var diagnosticState = new AppState();
-    var withoutExe = new GameEntry { Name = "Без EXE", ProfileId = Guid.NewGuid() };
-    var withBackup = new GameEntry { Name = "Снять профиль", ExePath = @"C:\Games\Old.exe" };
-    var missingExe = new GameEntry { Name = "Нет файла", ExePath = @"C:\Games\Missing.exe",
-        ProfileId = Guid.NewGuid(), Status = ApplyStatus.Error };
-    diagnosticState.Games.Add(withoutExe);
-    diagnosticState.Games.Add(withBackup);
+    string exeA = Path.Combine(temp, "FirstGame.exe");
+    string exeB = Path.Combine(temp, "SecondGame.exe");
+    File.WriteAllBytes(exeA, [0x4D, 0x5A]);
+    File.WriteAllBytes(exeB, [0x4D, 0x5A]);
+    var displayA = new DisplayInfo("a", "Экран A", @"\\.\DISPLAY1", 2560, 1440,
+        120000, 1000, true, "DisplayPort", false, false);
+
+    AppState FixedRefreshState(int fps, VrrMode vrr = VrrMode.FixedRefresh, string? displayId = null)
+    {
+        var profile = new PerformanceProfile { FpsLimit = fps, Vrr = vrr };
+        var result = new AppState { DefaultDisplayId = "a" };
+        result.Profiles.Add(profile);
+        result.Games.Add(new GameEntry
+            { Name = "Ratio test", ExePath = exeA, ProfileId = profile.Id, DisplayId = displayId ?? "" });
+        return result;
+    }
+    var fixed40 = FixedRefreshState(40);
+    var fixed40Results = DiagnosticsService.Analyze(DiagnosticsService.Capture(fixed40, [displayA], "RTSS", true,
+        "NVAPI DRS доступен", true));
+    Assert(!fixed40Results.Any(result => result.RuleId is DiagnosticRule.FixedRefreshRatio or DiagnosticRule.AdditionalFpsLimiter),
+        "120 Hz / 40 FPS is an integer ratio and no unobserved second limiter is invented");
+    var fixed50 = FixedRefreshState(50);
+    var fixed50Results = DiagnosticsService.Analyze(DiagnosticsService.Capture(fixed50, [displayA], "RTSS", true,
+        "NVAPI DRS доступен", true));
+    Assert(fixed50Results.Any(result => result.RuleId == DiagnosticRule.FixedRefreshRatio &&
+                                       result.Severity == DiagnosticSeverity.Warning),
+        "120 Hz / 50 FPS warns for a non-integer Fixed Refresh ratio");
+    var gsync50 = FixedRefreshState(50, VrrMode.GSync);
+    Assert(!DiagnosticsService.Analyze(DiagnosticsService.Capture(gsync50, [displayA], "RTSS", true,
+            "NVAPI DRS доступен", true)).Any(result => result.RuleId == DiagnosticRule.FixedRefreshRatio),
+        "G-SYNC does not receive the Fixed Refresh ratio warning");
+    var nominalProfile = new PerformanceProfile { FpsMode = FpsLimitMode.DisplayFraction, FpsDivisor = 3,
+        Vrr = VrrMode.FixedRefresh };
+    var nominalState = new AppState { DefaultDisplayId = "a" };
+    nominalState.Profiles.Add(nominalProfile);
+    nominalState.Games.Add(new GameEntry { Name = "119,998 Hz", ExePath = exeA, ProfileId = nominalProfile.Id });
+    var nominalResults = DiagnosticsService.Analyze(DiagnosticsService.Capture(nominalState,
+        [displayA with { RefreshNumerator = 119998 }], "RTSS", true, "NVAPI DRS доступен", true));
+    Assert(!nominalResults.Any(result => result.RuleId == DiagnosticRule.FixedRefreshRatio) &&
+           nominalResults.Any(result => result.RuleId == DiagnosticRule.SignalRefreshApproximation &&
+                                        result.Details.Contains("119,998 Гц")),
+        "119.998 Hz uses the nominal 120 Hz rate and discloses signal precision");
+    var dynamicProfile = new PerformanceProfile { FpsMode = FpsLimitMode.DisplayFraction, FpsDivisor = 3 };
+    var dynamicState = new AppState { DefaultDisplayId = "a" };
+    dynamicState.Profiles.Add(dynamicProfile);
+    dynamicState.Games.Add(new GameEntry { Name = "Dynamic refresh", ExePath = exeA, ProfileId = dynamicProfile.Id });
+    var dynamicResults = DiagnosticsService.Analyze(DiagnosticsService.Capture(dynamicState,
+        [displayA with { DynamicRefresh = true }], "RTSS", true, "NVAPI DRS доступен", true));
+    Assert(dynamicResults.Any(result => result.RuleId == DiagnosticRule.DynamicRefresh) &&
+           !dynamicResults.Any(result => result.RuleId == DiagnosticRule.InvalidFpsFraction),
+        "dynamic refresh is described separately from an invalid FPS fraction");
+    var invalidFractionProfile = new PerformanceProfile { FpsMode = FpsLimitMode.DisplayFraction, FpsDivisor = 7 };
+    var invalidFractionState = new AppState { DefaultDisplayId = "a" };
+    invalidFractionState.Profiles.Add(invalidFractionProfile);
+    invalidFractionState.Games.Add(new GameEntry { Name = "Invalid fraction", ExePath = exeA,
+        ProfileId = invalidFractionProfile.Id });
+    Assert(DiagnosticsService.Analyze(DiagnosticsService.Capture(invalidFractionState, [displayA],
+                "RTSS", true, "NVAPI DRS доступен", true))
+            .Any(result => result.RuleId == DiagnosticRule.InvalidFpsFraction && result.Severity == DiagnosticSeverity.Error),
+        "a divisor that cannot produce an integer FPS receives a configuration error");
+
+    string twinA = Path.Combine(temp, "one", "Twin.exe");
+    string twinB = Path.Combine(temp, "two", "Twin.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(twinA)!);
+    Directory.CreateDirectory(Path.GetDirectoryName(twinB)!);
+    File.WriteAllBytes(twinA, [0x4D, 0x5A]);
+    File.WriteAllBytes(twinB, [0x4D, 0x5A]);
+    var diagnosticState = new AppState { DefaultDisplayId = "a" };
+    var diagnosticProfile = new PerformanceProfile { FpsLimit = 60, Vrr = VrrMode.GSync };
+    var offlineDisplayProfile = new PerformanceProfile { FpsMode = FpsLimitMode.DisplayFraction,
+        FpsDivisor = 3, Vrr = VrrMode.GSync };
+    diagnosticState.Profiles.Add(diagnosticProfile);
+    diagnosticState.Profiles.Add(offlineDisplayProfile);
+    var verifiedGame = new GameEntry { Name = "Verified", ExePath = exeA, ProfileId = diagnosticProfile.Id };
+    var twinGameA = new GameEntry { Name = "Twin A", ExePath = twinA, ProfileId = diagnosticProfile.Id };
+    var twinGameB = new GameEntry { Name = "Twin B", ExePath = twinB, ProfileId = diagnosticProfile.Id };
+    var missingExe = new GameEntry { Name = "Missing", ExePath = Path.Combine(temp, "Missing.exe"), ProfileId = diagnosticProfile.Id };
+    var offlineDisplayGame = new GameEntry { Name = "Offline display", ExePath = exeB,
+        ProfileId = offlineDisplayProfile.Id, DisplayId = "disconnected" };
+    diagnosticState.Games.Add(verifiedGame);
+    diagnosticState.Games.Add(twinGameA);
+    diagnosticState.Games.Add(twinGameB);
     diagnosticState.Games.Add(missingExe);
-    diagnosticState.Backups.Add(new SettingBackup { ManagedGameId = withBackup.Id, ExePath = withBackup.ExePath });
-    var findings = AttentionService.Analyze(diagnosticState, "RTSS закрыт", false,
-        "NVIDIA недоступна", _ => false);
-    Assert(findings.Count == 5 && findings[0].Target == AttentionTarget.Settings &&
-           findings[1].Target == AttentionTarget.Settings &&
-           findings.Any(issue => issue.Game == withoutExe && issue.Target == AttentionTarget.ChooseExe) &&
-           findings.Any(issue => issue.Game == withBackup && issue.Category == "ВОССТАНОВЛЕНИЕ") &&
-           findings.Any(issue => issue.Game == missingExe && issue.Advice.Contains("Файл игры не найден")),
-        "diagnostics classify integration, backup and executable issues without external writes");
-    Console.WriteLine("PASS read-only diagnostic findings");
+    diagnosticState.Games.Add(offlineDisplayGame);
+    var diagnosticRtss = new FakeRtss { Exists = true, Fps = 59, LimiterMode = 1 };
+    var diagnosticNvidia = new FakeNvidia
+    {
+        ProfileExists = true, Vrr = NvidiaClient.AllowGSync, VSync = NvidiaClient.VSyncOn, Fps = 120
+    };
+    var diagnosticSync = new SyncService(store, _ => diagnosticRtss, () => diagnosticNvidia, () => [displayA]);
+    var diagnosticProbe = diagnosticSync.CheckDiagnostics(AppStateSnapshot.Capture(diagnosticState));
+    var findings = DiagnosticsService.Analyze(DiagnosticsService.Capture(diagnosticState, [displayA],
+        diagnosticProbe.RtssStatus, diagnosticProbe.RtssAvailable, diagnosticProbe.NvidiaStatus,
+        diagnosticProbe.NvidiaAvailable, diagnosticProbe));
+    Assert(findings.Any(result => result.RuleId == DiagnosticRule.ExecutableMissing && result.GameId == missingExe.Id) &&
+           findings.Any(result => result.RuleId == DiagnosticRule.DuplicateExecutableName && result.GameId == twinGameA.Id) &&
+           findings.Any(result => result.RuleId == DiagnosticRule.DisplayUnavailable && result.GameId == offlineDisplayGame.Id) &&
+           findings.Any(result => result.RuleId == DiagnosticRule.AdditionalFpsLimiter && result.GameId == verifiedGame.Id) &&
+           findings.Any(result => result.RuleId == DiagnosticRule.RtssReadbackMismatch && result.GameId == verifiedGame.Id) &&
+           findings.Any(result => result.RuleId == DiagnosticRule.NvidiaReadbackMismatch && result.GameId == verifiedGame.Id),
+        "diagnostics identify missing files, duplicate RTSS names, missing display and observed readback conflicts");
+    Assert(diagnosticRtss.WriteCalls == 0 && diagnosticRtss.RestoreCalls == 0 &&
+           diagnosticNvidia.ApplyCalls == 0 && diagnosticNvidia.RestoreCalls == 0,
+        "diagnostic probe reads fake integrations without invoking writes, apply or restore");
+    diagnosticRtss.Fps = 60;
+    diagnosticNvidia.Fps = 0;
+    var matchingState = AppStateSnapshot.Capture(diagnosticState);
+    var matchingProbe = diagnosticSync.CheckDiagnostics(matchingState);
+    var matchingResults = DiagnosticsService.Analyze(DiagnosticsService.Capture(matchingState, [displayA],
+        matchingProbe.RtssStatus, matchingProbe.RtssAvailable, matchingProbe.NvidiaStatus,
+        matchingProbe.NvidiaAvailable, matchingProbe));
+    Assert(matchingResults.Any(result => result.RuleId == DiagnosticRule.ReadbackConfirmed &&
+                                         result.GameId == verifiedGame.Id && result.Severity == DiagnosticSeverity.Ok),
+        "confirmed RTSS and NVIDIA values produce an explicit OK diagnostic result");
+
+    var unavailableSync = new SyncService(store, _ => new FakeRtss { Running = false },
+        () => throw new InvalidOperationException("NVIDIA недоступна"), () => []);
+    var unavailableProbe = unavailableSync.CheckDiagnostics(new AppState());
+    var unavailableResults = DiagnosticsService.Analyze(DiagnosticsService.Capture(new AppState(), [],
+        unavailableProbe.RtssStatus, unavailableProbe.RtssAvailable, unavailableProbe.NvidiaStatus,
+        unavailableProbe.NvidiaAvailable, unavailableProbe));
+    Assert(unavailableResults.Any(result => result.RuleId == DiagnosticRule.RtssUnavailable && result.Severity == DiagnosticSeverity.Error) &&
+           unavailableResults.Any(result => result.RuleId == DiagnosticRule.NvidiaUnavailable && result.Severity == DiagnosticSeverity.Error),
+        "RTSS and NVIDIA availability failures have separate error findings");
+    Console.WriteLine("PASS typed read-only diagnostics, display rules and verified limiter conflicts");
     Assert(state.Profiles.Count == 3, "three starter profiles");
     Assert(state.RtssLimiterMode == RtssLimiterMode.FrontEdgeSync && (int)state.RtssLimiterMode == 1,
         "Front Edge Sync is the default RTSS limiter mode");
@@ -212,12 +319,6 @@ try
     Assert(detachedGame.ProfileId is null && detached.Backups.Count == 0, "clearing profile restores and drops saved backup");
     Console.WriteLine("PASS empty profile selection does not apply settings");
 
-    string exeA = Path.Combine(temp, "FirstGame.exe");
-    string exeB = Path.Combine(temp, "SecondGame.exe");
-    File.WriteAllBytes(exeA, [0x4D, 0x5A]);
-    File.WriteAllBytes(exeB, [0x4D, 0x5A]);
-    var displayA = new DisplayInfo("a", "Экран A", @"\\.\DISPLAY1", 2560, 1440,
-        120000, 1000, true, "DisplayPort", false, false);
     var displayB = displayA with { Id = "b", Name = "Экран B", IsPrimary = false, RefreshNumerator = 144000 };
     var monitor = new DisplayChangeMonitor();
     monitor.Reset([displayA]);
@@ -702,10 +803,10 @@ sealed class PerExeFakeRtss : IRtssSettings
 
 sealed class FakeNvidia : INvidiaSettings
 {
-    public bool ProfileExists { get; private set; }
-    public uint? Vrr { get; private set; }
-    public uint? VSync { get; private set; }
-    public uint? Fps { get; private set; }
+    public bool ProfileExists { get; set; }
+    public uint? Vrr { get; set; }
+    public uint? VSync { get; set; }
+    public uint? Fps { get; set; }
     public bool ProbeFailure { get; set; }
     public bool FailAfterApply { get; set; }
     public int ApplyCalls { get; private set; }

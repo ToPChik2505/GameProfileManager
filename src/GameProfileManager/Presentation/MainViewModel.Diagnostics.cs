@@ -6,15 +6,29 @@ public sealed partial class MainViewModel
 {
     private void RebuildAttentionItems()
     {
-        var next = AttentionService.Analyze(_state, _sync.RtssStatus, _sync.RtssReady, _sync.NvidiaStatus)
-            .Select(finding => new AttentionItem(finding.Category, finding.Title, finding.Detail,
-                finding.Advice, finding.Target == AttentionTarget.Settings ? 5 : 2,
-                finding.Target switch
+        var probe = _latestDiagnosticsProbe;
+        var snapshot = DiagnosticsService.Capture(_state, _displaySnapshot,
+            _sync.RtssStatus, _sync.RtssStatus is null ? null : _sync.RtssReady, _sync.NvidiaStatus,
+            _sync.NvidiaStatus is null ? null : _sync.NvidiaStatus.StartsWith("NVAPI DRS доступен", StringComparison.OrdinalIgnoreCase),
+            probe);
+        var next = DiagnosticsService.Analyze(snapshot)
+            .Where(result => result.Severity != DiagnosticSeverity.Ok)
+            .Select(result => new AttentionItem(
+                result.Severity switch
                 {
-                    AttentionTarget.Settings => "Открыть настройки",
-                    AttentionTarget.ChooseExe => "Выбрать .exe",
+                    DiagnosticSeverity.Error => "ОШИБКА",
+                    DiagnosticSeverity.Warning => "ПРЕДУПРЕЖДЕНИЕ",
+                    DiagnosticSeverity.Info => "ИНФОРМАЦИЯ",
+                    _ => "OK"
+                }, result.Subject, result.Summary, result.Details, result.SuggestedAction,
+                result.Target == DiagnosticActionTarget.Settings ? 5 : 2,
+                result.Target switch
+                {
+                    DiagnosticActionTarget.Settings => "Открыть настройки",
+                    DiagnosticActionTarget.ChooseExe => "Выбрать .exe",
                     _ => "Открыть игру"
-                }, finding.Game))
+                }, result.GameId is Guid id ? Games.FirstOrDefault(game => game.Id == id) : null,
+                result.Severity, result.RuleId, result.CanAutoFix))
             .ToArray();
 
         // Сохраняем существующие элементы, если данные не изменились: это

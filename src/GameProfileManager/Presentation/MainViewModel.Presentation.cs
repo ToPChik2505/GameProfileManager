@@ -13,6 +13,12 @@ public sealed partial class MainViewModel
         _effectiveRtssModes[profile.Id] = RtssLimiterModeResolver.Resolve(_state, profile);
         PropertyChangedEventHandler handler = (_, e) =>
         {
+            if (e.PropertyName is nameof(PerformanceProfile.Name) or nameof(PerformanceProfile.FpsLimit) or
+                nameof(PerformanceProfile.FpsMode) or nameof(PerformanceProfile.FpsDivisor) or
+                nameof(PerformanceProfile.Vrr) or nameof(PerformanceProfile.VSync) or
+                nameof(PerformanceProfile.RtssLimiterMode))
+                _latestDiagnosticsProbe = null;
+
             if (e.PropertyName == nameof(PerformanceProfile.RtssLimiterMode))
             {
                 var effective = RtssLimiterModeResolver.Resolve(_state, profile);
@@ -56,6 +62,10 @@ public sealed partial class MainViewModel
         GameCards.Add(card);
         PropertyChangedEventHandler handler = (_, e) =>
         {
+        if (e.PropertyName is nameof(GameEntry.Name) or nameof(GameEntry.ProfileId) or
+            nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
+            _latestDiagnosticsProbe = null;
+
         if (e.PropertyName == nameof(GameEntry.Name)) { UpdateSummary(); ScheduleSave(); }
         if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
         {
