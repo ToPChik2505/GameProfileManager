@@ -148,7 +148,43 @@ public sealed class GameEntry : Observable
     [JsonIgnore] public string VrrDisplay { get; set; } = "—";
     [JsonIgnore] public string VSyncDisplay { get; set; } = "—";
     [JsonIgnore] public string RtssLimiterDisplay { get; set; } = "—";
-    [JsonIgnore] public ImageSource? Icon { get; set; }
+    private ImageSource? _icon;
+    private bool _iconResolved;
+    private Func<GameEntry, ImageSource?>? _iconLoader;
+
+    /// <summary>
+    /// Иконка загружается только при первом обращении интерфейса, а не при каждом пересчёте состояния игр.
+    /// Отсутствующая иконка также запоминается, чтобы не повторять чтение файлов при каждом обновлении привязки.
+    /// </summary>
+    [JsonIgnore]
+    public ImageSource? Icon
+    {
+        get
+        {
+            if (!_iconResolved && _iconLoader is not null)
+            {
+                _iconResolved = true;
+                _icon = _iconLoader(this);
+            }
+            return _icon;
+        }
+        set
+        {
+            _icon = value;
+            _iconResolved = value is not null;
+            Changed(nameof(Icon));
+        }
+    }
+
+    /// <summary>
+    /// Назначает загрузчик изображений на уровне представления; не включает его в сериализуемое состояние.
+    /// </summary>
+    public void ConfigureIconLoader(Func<GameEntry, ImageSource?> loader)
+    {
+        ArgumentNullException.ThrowIfNull(loader);
+        _iconLoader = loader;
+        if (_icon is null) _iconResolved = false;
+    }
 }
 
 public sealed class SettingBackup

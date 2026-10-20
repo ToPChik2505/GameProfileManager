@@ -461,7 +461,7 @@
                 </UniformGrid>
               </StackPanel>
               <Grid>
-                <ListBox x:Name="GamesList" ItemsSource="{Binding GamesView}" SelectedItem="{Binding SelectedGame}" ItemContainerStyle="{StaticResource GameListItem}" Background="Transparent" BorderThickness="0" Padding="10,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox x:Name="GamesList" ItemsSource="{Binding GamesView}" SelectedItem="{Binding SelectedGame}" ItemContainerStyle="{StaticResource GameListItem}" Background="Transparent" BorderThickness="0" Padding="10,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True">
                   <ListBox.ItemTemplate>
                     <DataTemplate>
                       <Grid Margin="2,0">

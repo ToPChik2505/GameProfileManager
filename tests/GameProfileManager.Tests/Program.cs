@@ -59,6 +59,19 @@ try
     using var restartedInstance = new SingleInstanceCoordinator(instanceIdentity);
     Assert(restartedInstance.TryStart(() => { }), "mutex is released after the first instance exits");
     Console.WriteLine("PASS single instance mutex and activation signal");
+    // Ленивая загрузка не трогает файловую систему, пока WPF не запросит иконку.
+    var lazyIconGame = new GameEntry { Name = "Lazy icon" };
+    int iconLoads = 0;
+    lazyIconGame.ConfigureIconLoader(_ => { iconLoads++; return null; });
+    Assert(iconLoads == 0, "icon is not loaded during model initialization");
+    _ = lazyIconGame.Icon;
+    _ = lazyIconGame.Icon;
+    Assert(iconLoads == 1, "missing icon is not repeatedly loaded");
+    lazyIconGame.Icon = null;
+    _ = lazyIconGame.Icon;
+    Assert(iconLoads == 2, "icon is reloaded after explicit invalidation");
+    Console.WriteLine("PASS lazy artwork loading and invalidation");
+
     var store = new SqliteStateStore(Path.Combine(temp, "db"));
     var state = store.Load();
     Assert(state.Profiles.Count == 3, "three starter profiles");

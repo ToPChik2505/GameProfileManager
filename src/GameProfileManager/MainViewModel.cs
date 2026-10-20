@@ -773,8 +773,11 @@ public sealed class MainViewModel : Observable, IDisposable
             }
         };
     }
-    private void Hook(GameEntry game) => game.PropertyChanged += (_, e) =>
+    private void Hook(GameEntry game)
     {
+        game.ConfigureIconLoader(FileIcon.Load);
+        game.PropertyChanged += (_, e) =>
+        {
         if (e.PropertyName == nameof(GameEntry.Name)) { UpdateSummary(); ScheduleSave(); }
         if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
         {
@@ -789,36 +792,54 @@ public sealed class MainViewModel : Observable, IDisposable
             if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId)) SaveOnly(false);
             else ScheduleSave();
         }
-    };
+        };
+    }
     private void RefreshDisplays()
     {
         var displays = _displays.ToArray();
+        var profilesById = Profiles.ToDictionary(profile => profile.Id);
         foreach (var profile in Profiles)
         {
             var fps = DisplayFps.Resolve(_state, null, profile, displays);
-            profile.FpsPreview = profile.FpsMode == FpsLimitMode.Manual ? $"{profile.FpsLimit} FPS" :
+            string preview = profile.FpsMode == FpsLimitMode.Manual ? $"{profile.FpsLimit} FPS" :
                 fps.Fps is int value ? $"1/{profile.FpsDivisor} · {value} FPS" : $"1/{profile.FpsDivisor} · недоступно";
-            profile.Changed(nameof(PerformanceProfile.FpsPreview));
+            if (profile.FpsPreview != preview)
+            {
+                profile.FpsPreview = preview;
+                profile.Changed(nameof(PerformanceProfile.FpsPreview));
+            }
         }
         foreach (var game in Games)
         {
-            var profile = Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
-            game.ProfileDisplay = profile?.Name ?? "Без профиля";
-            game.FpsDisplay = profile is null ? "—" : DisplayFps.Resolve(_state, game, profile, displays).DisplayText;
-            game.VrrDisplay = profile is null ? "—" : ProfileLabels.Vrr(profile.Vrr);
-            game.VSyncDisplay = profile is null ? "—" : ProfileLabels.VSync(profile.VSync);
-            game.RtssLimiterDisplay = profile is null ? "—" :
-                ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
-                (profile.RtssLimiterMode is null ? " · общий режим" : " · режим профиля");
-            if (game.Icon is null) game.Icon = FileIcon.Load(game);
-            game.Changed(nameof(GameEntry.ProfileDisplay)); game.Changed(nameof(GameEntry.FpsDisplay)); game.Changed(nameof(GameEntry.VrrDisplay)); game.Changed(nameof(GameEntry.VSyncDisplay));
-            game.Changed(nameof(GameEntry.RtssLimiterDisplay));
-            game.Changed(nameof(GameEntry.Icon));
+            PerformanceProfile? profile = game.ProfileId is { } id &&
+                profilesById.TryGetValue(id, out var found) ? found : null;
+            UpdateGameDisplay(game, nameof(GameEntry.ProfileDisplay), game.ProfileDisplay,
+                profile?.Name ?? "Без профиля", value => game.ProfileDisplay = value);
+            UpdateGameDisplay(game, nameof(GameEntry.FpsDisplay), game.FpsDisplay,
+                profile is null ? "—" : DisplayFps.Resolve(_state, game, profile, displays).DisplayText,
+                value => game.FpsDisplay = value);
+            UpdateGameDisplay(game, nameof(GameEntry.VrrDisplay), game.VrrDisplay,
+                profile is null ? "—" : ProfileLabels.Vrr(profile.Vrr), value => game.VrrDisplay = value);
+            UpdateGameDisplay(game, nameof(GameEntry.VSyncDisplay), game.VSyncDisplay,
+                profile is null ? "—" : ProfileLabels.VSync(profile.VSync), value => game.VSyncDisplay = value);
+            UpdateGameDisplay(game, nameof(GameEntry.RtssLimiterDisplay), game.RtssLimiterDisplay,
+                profile is null ? "—" : ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
+                (profile.RtssLimiterMode is null ? " · общий режим" : " · режим профиля"),
+                value => game.RtssLimiterDisplay = value);
+            // Загрузка Icon выполняется привязкой только для отображаемых WPF-элементов.
         }
         if (StatusFilter != "Все статусы") GamesView.Refresh();
         Changed(nameof(SelectedProfileFpsDetail));
         UpdateSummary();
     }
+    /// <summary>Не отправляет лишние уведомления привязкам, если текстовое значение не изменилось.</summary>
+    private static void UpdateGameDisplay(GameEntry game, string name, string current, string next, Action<string> assign)
+    {
+        if (current == next) return;
+        assign(next);
+        game.Changed(name);
+    }
+
     private void ScheduleSave()
     {
         _saveTimer.Stop();
