@@ -72,7 +72,13 @@ public sealed class SqliteStateStore : IStateStore
     {
         var bytes = Encoding.UTF8.GetBytes(DatabasePath + "\0");
         int result = sqlite3_open_v2(bytes, out var handle, 0x00000002 | 0x00000004 | 0x00010000, IntPtr.Zero);
-        if (result != 0) throw new InvalidOperationException($"SQLite open failed: {result}");
+        if (result != 0)
+        {
+            // SQLite может выделить handle даже при ошибке открытия файла.
+            // Освобождаем его до исключения, иначе нативная память останется занятой.
+            if (handle != IntPtr.Zero) sqlite3_close_v2(handle);
+            throw new InvalidOperationException($"SQLite open failed: {result}");
+        }
         return new DbHandle(handle);
     }
     private static IntPtr Prepare(IntPtr db, string sql)

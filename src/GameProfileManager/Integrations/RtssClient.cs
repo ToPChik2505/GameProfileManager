@@ -39,12 +39,21 @@ public sealed class RtssClient : IRtssSettings
         string library = Path.Combine(InstallDirectory, "RTSSHooks64.dll");
         if (!File.Exists(library)) throw new FileNotFoundException("RTSSHooks64.dll не найден. Укажите папку RTSS в настройках.", library);
         _library = NativeLibrary.Load(library);
-        _load = Resolve<LoadProfile>("LoadProfile");
-        _save = Resolve<SaveProfile>("SaveProfile");
-        _get = Resolve<GetProperty>("GetProfileProperty");
-        _set = Resolve<SetProperty>("SetProfileProperty");
-        _update = Resolve<UpdateProfiles>("UpdateProfiles");
-        _delete = Resolve<DeleteProfile>("DeleteProfile");
+        try
+        {
+            _load = Resolve<LoadProfile>("LoadProfile");
+            _save = Resolve<SaveProfile>("SaveProfile");
+            _get = Resolve<GetProperty>("GetProfileProperty");
+            _set = Resolve<SetProperty>("SetProfileProperty");
+            _update = Resolve<UpdateProfiles>("UpdateProfiles");
+            _delete = Resolve<DeleteProfile>("DeleteProfile");
+        }
+        catch
+        {
+            // Ошибка экспорта RTSSHooks64 не должна приводить к удержанию загруженной DLL.
+            NativeLibrary.Free(_library);
+            throw;
+        }
     }
 
     public bool ProfileExists(string exeName)

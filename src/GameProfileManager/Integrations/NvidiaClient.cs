@@ -37,28 +37,38 @@ public sealed class NvidiaClient : INvidiaSettings
     public NvidiaClient()
     {
         _library = NativeLibrary.Load("nvapi64.dll");
-        var query = Marshal.GetDelegateForFunctionPointer<QueryInterface>(NativeLibrary.GetExport(_library, "nvapi_QueryInterface"));
-        T Resolve<T>(uint id) where T : Delegate
+        try
         {
-            IntPtr ptr = query(id);
-            if (ptr == IntPtr.Zero) throw new NotSupportedException($"NVAPI interface 0x{id:X8} отсутствует.");
-            return Marshal.GetDelegateForFunctionPointer<T>(ptr);
+            var query = Marshal.GetDelegateForFunctionPointer<QueryInterface>(NativeLibrary.GetExport(_library, "nvapi_QueryInterface"));
+            T Resolve<T>(uint id) where T : Delegate
+            {
+                IntPtr ptr = query(id);
+                if (ptr == IntPtr.Zero) throw new NotSupportedException($"NVAPI interface 0x{id:X8} отсутствует.");
+                return Marshal.GetDelegateForFunctionPointer<T>(ptr);
+            }
+            _initialize = Resolve<Initialize>(0x0150E828);
+            _unload = Resolve<Unload>(0xD22BDD7E);
+            _createSession = Resolve<CreateSession>(0x0694D52E);
+            _destroySession = Resolve<DestroySession>(0xDAD9CFF8);
+            _loadSettings = Resolve<SessionOnly>(0x375DBD6B);
+            _saveSettings = Resolve<SessionOnly>(0xFCBC7E14);
+            _findApplication = Resolve<FindApplication>(0xEEE566B2);
+            _createProfile = Resolve<CreateProfile>(0xCC176068);
+            _createApplication = Resolve<CreateApplication>(0x4347A9DE);
+            _findProfile = Resolve<FindProfileByName>(0x7E4A9A0B);
+            _deleteProfile = Resolve<DeleteProfile>(0x17093206);
+            _getSetting = Resolve<GetSetting>(0x73BF8338);
+            _setSetting = Resolve<SetSetting>(0x577DD202);
+            _deleteSetting = Resolve<DeleteSetting>(0xE4A26362);
+            Check(_initialize(), "NvAPI_Initialize");
         }
-        _initialize = Resolve<Initialize>(0x0150E828);
-        _unload = Resolve<Unload>(0xD22BDD7E);
-        _createSession = Resolve<CreateSession>(0x0694D52E);
-        _destroySession = Resolve<DestroySession>(0xDAD9CFF8);
-        _loadSettings = Resolve<SessionOnly>(0x375DBD6B);
-        _saveSettings = Resolve<SessionOnly>(0xFCBC7E14);
-        _findApplication = Resolve<FindApplication>(0xEEE566B2);
-        _createProfile = Resolve<CreateProfile>(0xCC176068);
-        _createApplication = Resolve<CreateApplication>(0x4347A9DE);
-        _findProfile = Resolve<FindProfileByName>(0x7E4A9A0B);
-        _deleteProfile = Resolve<DeleteProfile>(0x17093206);
-        _getSetting = Resolve<GetSetting>(0x73BF8338);
-        _setSetting = Resolve<SetSetting>(0x577DD202);
-        _deleteSetting = Resolve<DeleteSetting>(0xE4A26362);
-        Check(_initialize(), "NvAPI_Initialize");
+        catch
+        {
+            // Если NvAPI_Initialize или получение экспортов завершилось ошибкой,
+            // нативная библиотека не должна оставаться загруженной до завершения процесса.
+            NativeLibrary.Free(_library);
+            throw;
+        }
     }
 
     public NvidiaSettingsSnapshot Read(string exePath)
