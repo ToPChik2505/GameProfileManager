@@ -301,6 +301,13 @@ try
     var nvidiaFake = new FakeNvidia();
     var sync = new SyncService(store, _ => rtssFake, () => nvidiaFake);
     var single = SelectionState();
+    int batchRtssCreations = 0, batchNvidiaCreations = 0;
+    var batchCheck = new SyncService(store,
+        _ => { batchRtssCreations++; return new FakeRtss { Exists = true, Fps = 73, LimiterMode = 1 }; },
+        () => { batchNvidiaCreations++; return new FakeNvidia(); });
+    batchCheck.CheckSaved(single);
+    Assert(batchRtssCreations == 1 && batchNvidiaCreations == 1,
+        "checking multiple games reuses one RTSS and NVIDIA client per pass");
     sync.ApplyOne(single, single.Games[0]);
     Assert(single.Games[0].Status == ApplyStatus.Applied && single.Games[1].Status == ApplyStatus.Pending,
         "single-game apply leaves other games untouched");

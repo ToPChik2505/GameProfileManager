@@ -41,6 +41,12 @@ public sealed class SyncService
     public void CheckSaved(AppState state)
     {
         var displays = ReadDisplays();
+        // Клиенты создаются только при первой допустимой игре и используются
+        // в пределах одного прохода; каждый Read по-прежнему открывает свежий DRS-сеанс.
+        var rtssClient = new Lazy<IRtssSettings>(() => _rtssFactory(state.RtssDirectory));
+        var nvidiaClient = new Lazy<INvidiaSettings>(_nvidiaFactory);
+        try
+        {
         foreach (var game in state.Games)
         {
             var profile = state.Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
@@ -65,7 +71,7 @@ public sealed class SyncService
             string rtssDetail = "", nvidiaDetail = "";
             try
             {
-                using var rtss = _rtssFactory(state.RtssDirectory);
+                var rtss = rtssClient.Value;
                 if (!rtss.IsRunning) rtssDetail = "RTSS закрыт; лимит FPS сейчас не действует";
                 else
                 {
@@ -87,7 +93,7 @@ public sealed class SyncService
             catch (Exception ex) { rtssDetail = ex.Message; _store.Log(ex); }
             try
             {
-                using var nvidia = _nvidiaFactory();
+                var nvidia = nvidiaClient.Value;
                 var values = nvidia.Read(game.ExePath);
                 nvidiaAvailable = true;
                 nvidiaMatched = values.Vrr == (profile.Vrr == VrrMode.FixedRefresh ? NvidiaClient.FixedRefresh : NvidiaClient.AllowGSync) &&
@@ -99,6 +105,12 @@ public sealed class SyncService
                 rtssMatched && nvidiaMatched ? ApplyStatus.Applied : ApplyStatus.Pending;
             game.Detail = $"RTSS: {rtssDetail}; NVIDIA: {nvidiaDetail}" +
                 (game.Status == ApplyStatus.Applied ? "; работа VRR в игре не измерена" : "");
+        }
+        }
+        finally
+        {
+            if (nvidiaClient.IsValueCreated) nvidiaClient.Value.Dispose();
+            if (rtssClient.IsValueCreated) rtssClient.Value.Dispose();
         }
     }
 
