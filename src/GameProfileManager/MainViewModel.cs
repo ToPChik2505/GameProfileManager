@@ -6,6 +6,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Threading;
 using GameProfileManager.Core;
+using GameProfileManager.Application;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
 using Microsoft.Win32;
@@ -652,89 +653,50 @@ public sealed class MainViewModel : Observable, IDisposable
     {
         Run(() =>
         {
-            var found = SteamDiscovery.FindInstalled();
-            int added = 0;
-            int removed = 0;
-            foreach (var utility in Games.Where(g => g.SteamAppId is not null && SteamDiscovery.NonGameAppIds.Contains(g.SteamAppId) &&
-                         g.ProfileId is null && !_state.Backups.Any(b => b.ManagedGameId == g.Id)).ToArray())
-            {
-                Games.Remove(utility);
-                if (SelectedGame == utility) SelectedGame = null;
-                removed++;
-            }
-            foreach (var game in found)
-            {
-                var existing = Games.FirstOrDefault(g => g.SteamAppId == game.SteamAppId);
-                var manuallyAdded = Games.FirstOrDefault(g => g.SteamAppId is null && !string.IsNullOrWhiteSpace(game.ExePath) &&
-                    g.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase));
-                if (manuallyAdded is not null && existing is not null && existing.ProfileId is null &&
-                    !_state.Backups.Any(b => b.ManagedGameId == existing.Id))
-                {
-                    if (SelectedGame == existing) SelectedGame = manuallyAdded;
-                    Games.Remove(existing);
-                    existing = null;
-                    removed++;
-                }
-                if (manuallyAdded is not null && existing is null)
-                {
-                    manuallyAdded.SteamAppId = game.SteamAppId;
-                    manuallyAdded.InstallDirectory = game.InstallDirectory;
-                    if (manuallyAdded.Name.Equals(Path.GetFileNameWithoutExtension(manuallyAdded.ExePath), StringComparison.OrdinalIgnoreCase))
-                        manuallyAdded.Name = game.Name;
-                    manuallyAdded.Icon = null;
-                    continue;
-                }
-                if (existing is not null)
-                {
-                    if (string.IsNullOrWhiteSpace(existing.ExePath) && !string.IsNullOrWhiteSpace(game.ExePath)) existing.ExePath = game.ExePath;
-                    continue;
-                }
-                Games.Add(game); Hook(game); added++;
-            }
+            var result = GameImportService.MergeSteam(Games, _state.Backups, SteamDiscovery.FindInstalled());
+            foreach (var game in result.AddedGames) Hook(game);
+            RestoreGameSelection();
             Search = "";
             StatusFilter = "Все статусы";
-            SelectedGame ??= Games.FirstOrDefault();
-            RefreshDisplays(); SaveOnly(); UpdateSummary();
-            Notice = found.Count == 0
+            RefreshDisplays();
+            SaveOnly();
+            Notice = result.Discovered == 0
                 ? "Steam: установленные игры не найдены. Проверьте путь к библиотеке Steam."
-                : $"Steam: найдено {found.Count}, добавлено {added}, убрано дублей и утилит {removed}. Для неоднозначных игр выберите .exe вручную.";
+                : $"Steam: найдено {result.Discovered}, добавлено {result.Added}, убрано дублей и утилит {result.Removed}. Для неоднозначных игр выберите .exe вручную.";
         });
     }
+
     private void ImportEpic()
     {
         Run(() =>
         {
-            var found = EpicDiscovery.FindInstalled();
-            int added = 0;
-            int existingCount = 0;
-            foreach (var game in found)
-            {
-                var existing = Games.FirstOrDefault(g => g.EpicAppName is not null &&
-                    g.EpicAppName.Equals(game.EpicAppName, StringComparison.OrdinalIgnoreCase));
-                existing ??= Games.FirstOrDefault(g => !string.IsNullOrWhiteSpace(game.ExePath) &&
-                    g.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase));
-                if (existing is not null)
-                {
-                    existing.EpicAppName = game.EpicAppName;
-                    existing.InstallDirectory ??= game.InstallDirectory;
-                    if (string.IsNullOrWhiteSpace(existing.ExePath) && !string.IsNullOrWhiteSpace(game.ExePath))
-                        existing.ExePath = game.ExePath;
-                    if (existing.Name.Equals(Path.GetFileNameWithoutExtension(existing.ExePath), StringComparison.OrdinalIgnoreCase))
-                        existing.Name = game.Name;
-                    existingCount++;
-                    continue;
-                }
-                Games.Add(game); Hook(game); added++;
-            }
+            var result = GameImportService.MergeEpic(Games, EpicDiscovery.FindInstalled());
+            foreach (var game in result.AddedGames) Hook(game);
+            RestoreGameSelection();
             Search = "";
             StatusFilter = "Все статусы";
-            SelectedGame ??= Games.FirstOrDefault();
-            RefreshDisplays(); SaveOnly(); UpdateSummary();
-            Notice = found.Count == 0
+            RefreshDisplays();
+            SaveOnly();
+            Notice = result.Discovered == 0
                 ? "EGS: установленные игры не найдены. Проверьте установку Epic Games Launcher."
-                : $"EGS: найдено {found.Count}, добавлено {added}, уже в библиотеке {existingCount}. Для неоднозначных игр выберите .exe вручную.";
+                : $"EGS: найдено {result.Discovered}, добавлено {result.Added}, уже в библиотеке {result.Existing}. Для неоднозначных игр выберите .exe вручную.";
         });
     }
+
+    /// <summary>
+    /// При удалении дубликата сохраняет выбранную игру по пути EXE;
+    /// переключение на первую запись допустимо только при отсутствии прежней.
+    /// </summary>
+    private void RestoreGameSelection()
+    {
+        if (SelectedGame is not null && Games.Contains(SelectedGame)) return;
+        string? previousExe = SelectedGame?.ExePath;
+        SelectedGame = !string.IsNullOrWhiteSpace(previousExe)
+            ? Games.FirstOrDefault(game => game.ExePath.Equals(previousExe, StringComparison.OrdinalIgnoreCase))
+                ?? Games.FirstOrDefault()
+            : Games.FirstOrDefault();
+    }
+
     private void Hook(PerformanceProfile profile)
     {
         _effectiveRtssModes[profile.Id] = RtssLimiterModeResolver.Resolve(_state, profile);

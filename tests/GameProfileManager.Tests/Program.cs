@@ -72,6 +72,25 @@ try
     Assert(iconLoads == 2, "icon is reloaded after explicit invalidation");
     Console.WriteLine("PASS lazy artwork loading and invalidation");
 
+    var importedLibrary = new System.Collections.ObjectModel.ObservableCollection<GameEntry>();
+    var manualGame = new GameEntry { Name = "Manual", ExePath = @"C:\\Games\\Sample.exe" };
+    var steamDuplicate = new GameEntry { Name = "Steam duplicate", ExePath = manualGame.ExePath, SteamAppId = "1234" };
+    importedLibrary.Add(manualGame);
+    importedLibrary.Add(steamDuplicate);
+    var steamImport = GameProfileManager.Application.GameImportService.MergeSteam(importedLibrary, [],
+        [new GameEntry { Name = "Steam title", ExePath = manualGame.ExePath, SteamAppId = "1234" }]);
+    Assert(steamImport.Removed == 1 && steamImport.Added == 0 && importedLibrary.Count == 1 &&
+           importedLibrary[0] == manualGame && manualGame.SteamAppId == "1234",
+        "Steam merge keeps manually added game without duplication");
+    manualGame.ProfileId = Guid.NewGuid();
+    var epicImport = GameProfileManager.Application.GameImportService.MergeEpic(importedLibrary,
+        [new GameEntry { Name = "Epic title", ExePath = manualGame.ExePath, EpicAppName = "epic-sample" }]);
+    Assert(epicImport.Existing == 1 && epicImport.Added == 0 && importedLibrary.Count == 1 &&
+           manualGame.EpicAppName == "epic-sample" && manualGame.ProfileId.HasValue,
+        "Epic merge preserves existing assignment and does not duplicate the EXE");
+    Console.WriteLine("PASS Steam/Epic catalog merge without duplicate or profile loss");
+
+
     var store = new SqliteStateStore(Path.Combine(temp, "db"));
     var state = store.Load();
     Assert(state.Profiles.Count == 3, "three starter profiles");
