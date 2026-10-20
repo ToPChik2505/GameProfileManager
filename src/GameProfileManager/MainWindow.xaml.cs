@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private HwndSource? _windowSource;
     private bool _exitRequested;
     private bool _trayHintShown;
+    private WindowState _restoreWindowState = WindowState.Normal;
 
     public MainWindow() : this(null)
     {
@@ -141,14 +142,22 @@ public partial class MainWindow : Window
     protected override void OnStateChanged(EventArgs e)
     {
         base.OnStateChanged(e);
+        if (WindowState != WindowState.Minimized)
+            _restoreWindowState = WindowState;
         if (WindowState == WindowState.Minimized && ViewModel.MinimizeToTray) Hide();
     }
 
     private void RestoreWindow()
     {
         Show();
-        WindowState = WindowState.Normal;
+        WindowState = _restoreWindowState;
         Activate();
+    }
+
+    internal void MaximizeForApplicationStartup()
+    {
+        _restoreWindowState = WindowState.Maximized;
+        WindowState = WindowState.Maximized;
     }
 
     internal void RestoreFromSecondLaunch()

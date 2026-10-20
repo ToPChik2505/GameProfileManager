@@ -9,6 +9,8 @@ namespace GameProfileManager;
 
 internal static class FileIcon
 {
+    private const int ArtworkDecodeWidth = 256;
+
     public static ImageSource? Load(string exePath, string? steamAppId)
     {
         string? artwork = SteamDiscovery.FindArtwork(steamAppId);
@@ -16,24 +18,31 @@ internal static class FileIcon
         {
             try
             {
+                int sourceWidth = GetImageWidth(artwork);
                 var image = new BitmapImage();
                 image.BeginInit();
                 image.CacheOption = BitmapCacheOption.OnLoad;
                 image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
-                // 92 DIP в инспекторе при масштабе Windows 200% требуют около 184 физических пикселей.
-                // Декодирование до 192 уменьшает память изображения по сравнению с 256 без потери детализации в этом размере.
-                image.DecodePixelWidth = 192;
+                // 92 DIP в инспекторе при масштабе 225% занимают около 207 физических пикселей.
+                image.DecodePixelWidth = ArtworkDecodeWidth;
                 image.UriSource = new Uri(artwork);
                 image.EndInit();
                 image.Freeze();
-                // Иногда Steam хранит только значок 32x32. В этом случае
-                // используем встроенный значок игры вместо растягивания миниатюры.
-                if (image.PixelWidth >= 96 && image.PixelHeight >= 96) return image;
+                // Низкое разрешение значка из кэша Steam заменяем значком EXE, если он есть.
+                if (sourceWidth >= ArtworkDecodeWidth && image.PixelHeight >= 96) return image;
                 return Load(exePath) ?? image;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException) { }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or
+                FileFormatException or ArgumentException) { }
         }
         return Load(exePath);
+    }
+
+    private static int GetImageWidth(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var decoder = BitmapDecoder.Create(stream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+        return decoder.Frames.Count == 0 ? 0 : decoder.Frames[0].PixelWidth;
     }
 
     public static ImageSource? Load(string path)

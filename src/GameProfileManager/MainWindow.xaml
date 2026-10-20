@@ -469,7 +469,7 @@
                       <Grid Margin="2,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Border Width="42" Height="42" Background="{DynamicResource NeutralSurfaceBrush}" CornerRadius="9" VerticalAlignment="Center">
-                          <Image Source="{Binding Icon}" Width="42" Height="42" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality">
+                          <Image Source="{Binding Icon}" Width="42" Height="42" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality">
                             <Image.Clip><RectangleGeometry Rect="0,0,42,42" RadiusX="9" RadiusY="9"/></Image.Clip>
                           </Image>
                         </Border>
@@ -512,7 +512,7 @@
                             <Grid>
                               <Grid.ColumnDefinitions><ColumnDefinition Width="104"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                               <Border Width="92" Height="92" CornerRadius="14" Background="{DynamicResource NeutralSurfaceBrush}" HorizontalAlignment="Left">
-                                <Image Source="{Binding Icon}" Width="92" Height="92" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality">
+                                <Image Source="{Binding Icon}" Width="92" Height="92" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality">
                                   <Image.Clip><RectangleGeometry Rect="0,0,92,92" RadiusX="14" RadiusY="14"/></Image.Clip>
                                 </Image>
                               </Border>

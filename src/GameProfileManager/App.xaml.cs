@@ -14,6 +14,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Контекст DPI задаётся до создания WPF-окон и WinForms-меню трея.
+        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
         // UI smoke и другие хосты используют ресурсы WPF, но не должны
         // запускать ещё один экземпляр приложения.
         if (Assembly.GetEntryAssembly() != typeof(App).Assembly)
@@ -71,6 +73,7 @@ public partial class App : System.Windows.Application
         try
         {
             MainWindow = new MainWindow();
+            ((GameProfileManager.MainWindow)MainWindow).MaximizeForApplicationStartup();
             MainWindow.Show();
         }
         catch (StateLoadException ex)

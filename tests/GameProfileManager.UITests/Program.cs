@@ -179,6 +179,11 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
         "game list artwork is clipped to rounded corners");
     Check(Find<Image>(window).Any(image => image.Clip is RectangleGeometry { RadiusX: 14, RadiusY: 14 }),
         "inspector artwork is clipped to rounded corners");
+    Check(Find<Image>(window).Where(image => image.Clip is RectangleGeometry { RadiusX: 9 or 14, RadiusY: 9 or 14 })
+            .All(image => image.HorizontalAlignment == HorizontalAlignment.Center &&
+                          image.VerticalAlignment == VerticalAlignment.Center &&
+                          RenderOptions.GetBitmapScalingMode(image) == BitmapScalingMode.HighQuality),
+        "game artwork is centered and uses high-quality scaling");
     var list = Find<ListBox>(window).Single(box => box.Name == "GamesList");
     Check(list.Items.Count == vm.GamesView.Cast<object>().Count(), "inspector game list bound to imported games");
     var applyButton = Find<Button>(window).FirstOrDefault(button => Equals(button.Content, "Применить к игре"));
@@ -496,6 +501,11 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
 
 static void CheckCaption(MainWindow window, MainViewModel vm, string output)
 {
+    InvokeWindowStartupMaximize(window);
+    Pump();
+    Check(window.WindowState == WindowState.Maximized, "application startup state fills the monitor work area");
+    window.WindowState = WindowState.Normal;
+    Pump();
     Check(window.WindowStyle == WindowStyle.None && WindowChrome.GetWindowChrome(window) is { CaptionHeight: 70 },
         "custom title bar has drag and resize chrome");
     long nativeStyle = GetWindowLongPtr(new WindowInteropHelper(window).Handle, -16).ToInt64();
@@ -769,15 +779,21 @@ static void CheckControllerMinimize(MainWindow window, MainViewModel vm)
 {
     var handle = typeof(MainWindow).GetMethod("HandleControllerAction", BindingFlags.Instance | BindingFlags.NonPublic)!;
     vm.MinimizeToTray = true;
+    InvokeWindowStartupMaximize(window);
     handle.Invoke(window, [ControllerAction.Tertiary]);
     Pump();
     Check(!window.IsVisible && window.WindowState == WindowState.Minimized, "controller Y minimizes to tray");
     handle.Invoke(window, [ControllerAction.ToggleWindow]);
     Pump();
-    Check(window.IsVisible && window.WindowState == WindowState.Normal, "controller chord restores window");
+    Check(window.IsVisible && window.WindowState == WindowState.Maximized, "controller chord restores maximized window");
+    window.WindowState = WindowState.Normal;
     vm.MinimizeToTray = false;
     Console.WriteLine("PASS controller minimize to tray and restore");
 }
+
+static void InvokeWindowStartupMaximize(MainWindow window) =>
+    typeof(MainWindow).GetMethod("MaximizeForApplicationStartup", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(window, null);
 
 static void OpenAndClose(ComboBox menu, string? snapshot = null)
 {
