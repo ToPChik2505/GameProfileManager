@@ -7,13 +7,15 @@ public sealed partial class MainViewModel
 {
     private void RebuildAttentionItems()
     {
-        AttentionItems.Clear();
+        // Сначала собираем новое представление. Пересоздание ObservableCollection на каждом
+        // сохранении профиля провоцировало повторную отрисовку WPF без изменений данных.
+        var next = new List<AttentionItem>();
         if (_sync.RtssStatus is not null && !_sync.RtssReady)
-            AttentionItems.Add(new("ИНТЕГРАЦИЯ", "RTSS недоступен", _sync.RtssStatus,
+            next.Add(new("ИНТЕГРАЦИЯ", "RTSS недоступен", _sync.RtssStatus,
                 "Запустите RTSS. Если он не найден, укажите папку установки в настройках, затем проверьте игры.",
                 5, "Открыть настройки", null));
         if (_sync.NvidiaStatus?.StartsWith("NVIDIA недоступна", StringComparison.OrdinalIgnoreCase) == true)
-            AttentionItems.Add(new("ИНТЕГРАЦИЯ", "NVIDIA недоступна", _sync.NvidiaStatus,
+            next.Add(new("ИНТЕГРАЦИЯ", "NVIDIA недоступна", _sync.NvidiaStatus,
                 "Проверьте драйвер NVIDIA и повторите проверку. Пока DRS недоступен, профили не применяются.",
                 5, "Открыть настройки", null));
         foreach (var game in Games)
@@ -22,14 +24,14 @@ public sealed partial class MainViewModel
             if (game.ProfileId is null)
             {
                 if (hasBackup)
-                    AttentionItems.Add(new("ВОССТАНОВЛЕНИЕ", game.Name, game.Detail,
+                    next.Add(new("ВОССТАНОВЛЕНИЕ", game.Name, game.Detail,
                         "Профиль снят. Нажмите «Применить» у игры, чтобы восстановить исходные значения RTSS и NVIDIA.",
                         2, "Открыть игру", game));
                 continue;
             }
             if (string.IsNullOrWhiteSpace(game.ExePath))
             {
-                AttentionItems.Add(new("НУЖЕН .EXE", game.Name, game.Detail,
+                next.Add(new("НУЖЕН .EXE", game.Name, game.Detail,
                     "Выберите игровой исполняемый файл. Лаунчер и служебный процесс для профиля не подходят.",
                     2, "Выбрать .exe", game));
                 continue;
@@ -50,7 +52,19 @@ public sealed partial class MainViewModel
                     "Файл игры не найден. Выберите актуальный игровой .exe в разделе «Мои игры».",
                 _ => "Откройте игру, прочитайте причину и повторите проверку или применение после исправления."
             };
-            AttentionItems.Add(new(game.StatusLabel.ToUpperInvariant(), game.Name, game.Detail,
+            next.Add(new(game.StatusLabel.ToUpperInvariant(), game.Name, game.Detail,
                 advice, 2, "Открыть игру", game));
         }
-    }}
+
+        if (AttentionItems.SequenceEqual(next)) return;
+        int common = Math.Min(AttentionItems.Count, next.Count);
+        for (int index = 0; index < common; index++)
+            if (!Equals(AttentionItems[index], next[index]))
+                AttentionItems[index] = next[index];
+        while (AttentionItems.Count > next.Count)
+            AttentionItems.RemoveAt(AttentionItems.Count - 1);
+        for (int index = common; index < next.Count; index++)
+            AttentionItems.Add(next[index]);
+    }
+}
+

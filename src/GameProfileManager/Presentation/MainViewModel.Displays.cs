@@ -50,19 +50,47 @@ public sealed partial class MainViewModel
                 found.Any(d => d.DynamicRefresh) ? "Динамическая частота: автоматический лимит недоступен" :
                 "Параметры экранов обновляются автоматически";
             if (changed.Length == 0) return;
-            Run(() =>
-            {
-                foreach (var game in changed)
-                {
-                    _sync.ApplyOne(_state, game);
-                }
-                RefreshDisplays();
-                Notice = changed.All(game => game.Status is ApplyStatus.Applied or ApplyStatus.RestartRequired)
-                    ? "Частота экрана изменилась; новые лимиты FPS применены."
-                    : "Частота экрана изменилась; проверьте статусы игр.";
-            });
+            // Запись RTSS/NVIDIA может длиться долго. Не выполняем её в обработчике DispatcherTimer.
+            _ = ApplyDisplayChangesAsync(changed);
         }
         catch (Exception ex) { _store.Log(ex); DisplayStatus = "Ошибка проверки экрана: " + ex.Message; }
+    }
+
+    /// <summary>
+    /// Последовательно применяет изменения FPS, не задерживая прорисовку окна.
+    /// Пока выполняется внешняя запись, редактирование профилей блокируется как при «Применить ко всем».
+    /// </summary>
+    private async Task ApplyDisplayChangesAsync(GameEntry[] changed)
+    {
+        if (_busy) return;
+        _busy = true;
+        IsApplyingAll = true;
+        SyncProgressPercent = 0;
+        try
+        {
+            for (int index = 0; index < changed.Length; index++)
+            {
+                var game = changed[index];
+                SyncProgressMessage = $"Обновление лимита после смены экрана: {game.Name}";
+                await Task.Run(() => _sync.ApplyOne(_state, game));
+                SyncProgressPercent = 100d * (index + 1) / changed.Length;
+            }
+            Notice = changed.All(game => game.Status is ApplyStatus.Applied or ApplyStatus.RestartRequired)
+                ? "Частота экрана изменилась; новые лимиты FPS применены."
+                : "Частота экрана изменилась; проверьте статусы игр.";
+        }
+        catch (Exception ex)
+        {
+            _store.Log(ex);
+            Notice = "Ошибка автоматической подстройки FPS: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+            IsApplyingAll = false;
+            RefreshDisplays();
+            UpdateSummary();
+        }
     }
 
     private static string Fingerprint(IEnumerable<DisplayInfo> displays) => string.Join("|",
