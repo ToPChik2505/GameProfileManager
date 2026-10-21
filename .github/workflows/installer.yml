@@ -64,6 +64,10 @@ jobs:
           if ($assets.Count -ne 1) { throw "Expected one installer asset, found $($assets.Count)" }
           $asset = $assets[0].FullName
           $version = $env:GITHUB_REF_NAME.Substring(1)
-          $notes = 'Первый выпуск с EXE-установщиком для Windows 11 x64 и ручной проверкой обновлений в настройках. В карточке игры упрощён выбор одного профиля или профилей по мониторам; исправлено отображение боковых списков в узком окне, название игры больше не редактируется. Установщик включает автономную сборку .NET 10 и SDL3, при обновлении сохраняет пользовательскую базу. RTSS и драйвер NVIDIA устанавливаются отдельно.'
-          gh release create $env:GITHUB_REF_NAME $asset --title "Game Profile Manager $version" --notes $notes --verify-tag
-          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed: $LASTEXITCODE" }
+          gh release view $env:GITHUB_REF_NAME --json tagName 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $asset --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $asset --title "Game Profile Manager $version" --generate-notes --verify-tag
+          }
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release publication failed: $LASTEXITCODE" }
