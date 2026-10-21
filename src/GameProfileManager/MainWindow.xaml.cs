@@ -1,5 +1,8 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -44,6 +47,7 @@ public partial class MainWindow : Window
     public MainWindow(MainViewModel? viewModel)
     {
         InitializeComponent();
+        UpdateStatusText.Text = $"Установлена версия {typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "неизвестна"}.";
         Loaded += (_, _) => UpdateResponsiveLayout();
         SizeChanged += (_, _) => UpdateResponsiveLayout();
         DataContext = viewModel ?? new MainViewModel();
@@ -70,6 +74,48 @@ public partial class MainWindow : Window
 
     private MainViewModel ViewModel => (MainViewModel)DataContext;
 
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdatesButton.IsEnabled = false;
+        UpdateStatusText.Text = "Проверяем последнюю опубликованную версию…";
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("GameProfileManager/1.0");
+            using var response = await client.GetAsync("https://api.github.com/repos/Vladislav2505/GameProfileManager/releases/latest");
+            response.EnsureSuccessStatusCode();
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var tag = json.RootElement.GetProperty("tag_name").GetString();
+            if (string.IsNullOrWhiteSpace(tag) || !Version.TryParse(tag.TrimStart('v', 'V'), out var latest))
+                throw new FormatException("У опубликованной версии неверный номер.");
+
+            var current = typeof(MainWindow).Assembly.GetName().Version ?? new Version(0, 0);
+            if (latest <= current)
+            {
+                UpdateStatusText.Text = $"Установлена актуальная версия {current.ToString(3)}.";
+                return;
+            }
+
+            UpdateStatusText.Text = $"Доступна версия {latest}. Установлена {current.ToString(3)}.";
+            if (System.Windows.MessageBox.Show(this, $"Доступна версия {latest}. Открыть страницу обновления?",
+                    "Обновление Game Profile Manager", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+            {
+                Process.Start(new ProcessStartInfo("https://github.com/Vladislav2505/GameProfileManager/releases/tag/" + Uri.EscapeDataString(tag))
+                {
+                    UseShellExecute = true
+                });
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or FormatException or System.ComponentModel.Win32Exception)
+        {
+            UpdateStatusText.Text = "Не удалось проверить обновления. Проверьте подключение к GitHub и повторите попытку.";
+        }
+        finally
+        {
+            CheckUpdatesButton.IsEnabled = true;
+        }
+    }
+
     private void UpdateResponsiveLayout()
     {
         UpdateWindowMinimumSizeForMonitor();
@@ -78,13 +124,12 @@ public partial class MainWindow : Window
         bool medium = ActualWidth < 1150;
         ContentColumns = narrow ? 1 : 2;
         OverviewStatColumns = narrow ? 1 : 3;
-        UpdateGameCardLayouts();
 
-        GameListColumn.Width = new GridLength(narrow ? 170 : medium ? 260 : 360);
+        GameListColumn.Width = new GridLength(narrow ? 250 : medium ? 280 : 360);
         GameGapColumn.Width = new GridLength(narrow ? 10 : 18);
-        ProfileListColumn.Width = new GridLength(narrow ? 170 : medium ? 230 : 310);
+        ProfileListColumn.Width = new GridLength(narrow ? 250 : medium ? 265 : 310);
         ProfileGapColumn.Width = new GridLength(narrow ? 10 : 16);
-        DisplayListColumn.Width = new GridLength(narrow ? 170 : medium ? 210 : 280);
+        DisplayListColumn.Width = new GridLength(narrow ? 250 : medium ? 260 : 280);
         DisplayGapColumn.Width = new GridLength(narrow ? 10 : 16);
 
         OverviewHeroArt.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
@@ -97,57 +142,6 @@ public partial class MainWindow : Window
 
         if (RootTabs.Template.FindName("PageContent", RootTabs) is ContentPresenter page)
             page.Margin = narrow ? new Thickness(18, 18, 18, 14) : new Thickness(30, 25, 30, 22);
-    }
-
-    private void GameCardsGrid_Loaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is Grid grid) UpdateGameCardLayout(grid);
-    }
-
-    private void GameCardsGrid_SizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        if (sender is Grid grid) UpdateGameCardLayout(grid);
-    }
-
-    private void UpdateGameCardLayouts()
-    {
-        if (FindVisualChild<Grid>(GameInspector, "GameCardsGrid") is { } grid)
-            UpdateGameCardLayout(grid);
-    }
-
-    private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
-    {
-        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, index);
-            if (child is T match && match.Name == name) return match;
-            if (FindVisualChild<T>(child, name) is { } descendant) return descendant;
-        }
-        return null;
-    }
-
-    private void UpdateGameCardLayout(Grid grid)
-    {
-        bool singleColumn = ContentColumns == 1;
-        GridLength secondColumnWidth = singleColumn
-            ? new GridLength(0)
-            : new GridLength(1, GridUnitType.Star);
-        if (grid.ColumnDefinitions[1].Width != secondColumnWidth)
-            grid.ColumnDefinitions[1].Width = secondColumnWidth;
-
-        var cards = grid.Children.OfType<Border>().ToArray();
-        if (cards.Length != 4) return;
-        Place(cards[0], 0, 0);
-        Place(cards[1], singleColumn ? 1 : 0, singleColumn ? 0 : 1);
-        Place(cards[2], singleColumn ? 2 : 1, 0);
-        Place(cards[3], singleColumn ? 3 : 1, singleColumn ? 0 : 1);
-
-        void Place(Border card, int row, int column)
-        {
-            Grid.SetRow(card, row);
-            Grid.SetColumn(card, column);
-            card.VerticalAlignment = singleColumn ? VerticalAlignment.Top : VerticalAlignment.Stretch;
-        }
     }
 
     private void ViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -470,19 +464,19 @@ public partial class MainWindow : Window
             game.Model.DisplayId = option.Value;
     }
 
-    private void GameDisplayProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void GameProfileMode_Click(object sender, RoutedEventArgs e)
     {
-        if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ProfileOption option })
-            vm.SetDisplayProfileAssignment(game.Model, game.Model.DisplayProfileTargetId,
-                option.Id == Guid.Empty ? null : option.Id);
+        if (DataContext is MainViewModel { CanEdit: true } &&
+            sender is Button { DataContext: GameEntryViewModel game, Tag: string mode })
+            game.AutoSwitchProfile = mode == "Auto";
     }
 
-    private void GameProfileAssignmentDisplay_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void GameDisplayProfileRow_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ModeOption<string> option })
-            game.DisplayProfileTargetId = option.Value;
+            sender is ComboBox { DataContext: DisplayProfileAssignmentRow row, SelectedItem: ProfileOption option })
+            vm.SetDisplayProfileAssignment(row.Game, row.DisplayId,
+                option.Id == Guid.Empty ? null : option.Id);
     }
 
     private void Fraction_SelectionChanged(object sender, SelectionChangedEventArgs e)

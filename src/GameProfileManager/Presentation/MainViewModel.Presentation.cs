@@ -59,12 +59,14 @@ public sealed partial class MainViewModel
     {
         if (_gameHandlers.ContainsKey(game)) return;
         var card = new GameEntryViewModel(game, _iconLoader);
+        card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
         _gameCards.Add(game, card);
         GameCards.Add(card);
         PropertyChangedEventHandler handler = (_, e) =>
         {
         if (e.PropertyName == nameof(GameEntry.DisplayProfileTargetId))
         {
+            card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
             SaveOnly(false);
             return;
         }
@@ -77,6 +79,8 @@ public sealed partial class MainViewModel
         if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId) or
             nameof(GameEntry.AutoSwitchProfile) or nameof(GameEntry.DisplayProfilePolicy))
         {
+            if (e.PropertyName == nameof(GameEntry.DisplayId))
+                card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
             game.Status = ApplyStatus.Pending;
             game.Detail = game.ProfileId is null
                 ? _state.Backups.Any(b => b.ManagedGameId == game.Id)
@@ -129,6 +133,12 @@ public sealed partial class MainViewModel
         {
             var resolution = ProfileResolver.Resolve(_state, game, displays);
             PerformanceProfile? profile = resolution.IsResolved ? resolution.Profile : null;
+            if (_gameCards.TryGetValue(game, out var card))
+                card.ProfileChoiceDetail = game.AutoSwitchProfile ? resolution.Reason :
+                    profile is null ? "Выберите основной профиль игры." :
+                    profile.FpsMode == FpsLimitMode.DisplayFraction
+                        ? "Профиль постоянный; при смене экрана может пересчитаться только лимит FPS."
+                        : "Профиль постоянный и не зависит от монитора.";
             UpdateGameDisplay(game, nameof(GameEntry.ProfileDisplay), game.ProfileDisplay,
                 profile?.Name ?? (game.AutoSwitchProfile ? "Профиль не определён" : "Без профиля"), value => game.ProfileDisplay = value);
             UpdateGameDisplay(game, nameof(GameEntry.FpsDisplay), game.FpsDisplay,

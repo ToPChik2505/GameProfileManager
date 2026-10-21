@@ -81,9 +81,9 @@ public sealed partial class MainViewModel : Observable, IDisposable
     ];
     public IReadOnlyList<ModeOption<DisplayProfilePolicy>> DisplayProfilePolicies { get; } =
     [
-        new(DisplayProfilePolicy.PreferredDisplay, "Экран игры (иначе — по умолчанию)"),
         new(DisplayProfilePolicy.WindowsPrimary, "Основной экран Windows"),
-        new(DisplayProfilePolicy.PinnedDisplay, "Только экран, выбранный для игры")
+        new(DisplayProfilePolicy.PreferredDisplay, "Выбранный экран, иначе общий"),
+        new(DisplayProfilePolicy.PinnedDisplay, "Только выбранный экран")
     ];
     public ObservableCollection<AttentionItem> AttentionItems { get; } = new();
     public bool IsUpdatingDisplayOptions { get; private set; }
@@ -98,6 +98,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         if (_busy || string.IsNullOrWhiteSpace(displayId)) return;
         var existing = game.DisplayProfileAssignments.FirstOrDefault(item =>
             item.DisplayId.Equals(displayId, StringComparison.OrdinalIgnoreCase));
+        if (existing?.ProfileId == profileId) return;
         if (profileId is null)
         {
             if (existing is not null) game.DisplayProfileAssignments.Remove(existing);
@@ -111,7 +112,12 @@ public sealed partial class MainViewModel : Observable, IDisposable
             game.Detail = "Назначение профиля для дисплея изменено";
         }
         _latestDiagnosticsProbe = null;
-        if (_gameCards.TryGetValue(game, out var card)) card.Changed(nameof(GameEntryViewModel.DisplayAssignmentProfileSelectionId));
+        if (_gameCards.TryGetValue(game, out var card))
+        {
+            card.Changed(nameof(GameEntryViewModel.DisplayAssignmentProfileSelectionId));
+            card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
+            card.RefreshDisplayAssignment(displayId);
+        }
         RefreshDisplays(); SaveOnly(false);
     }
     public ObservableCollection<PerformanceProfile> Profiles => _state.Profiles;
@@ -282,7 +288,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
             var inherited = Profiles.Where(profile => profile.RtssLimiterMode is null)
                 .Select(profile => profile.Id).ToHashSet();
             foreach (var profileId in inherited) _effectiveRtssModes[profileId] = value;
-            foreach (var game in Games.Where(game => EffectiveProfileIds(game).Any(inherited.Contains)))
+            foreach (var game in Games.Where(game => ActiveProfileIds(game).Any(inherited.Contains)))
             { game.Status = ApplyStatus.Pending; game.Detail = "Режим лимитера RTSS изменён; примените профиль"; }
             Changed(nameof(SelectedProfileEffectiveRtssModeLabel));
             RefreshDisplays();

@@ -130,6 +130,8 @@ public sealed partial class MainViewModel
                          .Where(id => !string.IsNullOrWhiteSpace(id) && !available.Contains(id))
                          .Distinct(StringComparer.OrdinalIgnoreCase))
                 ProfileAssignmentDisplayOptions.Add(new(id, $"{DisplayNameCache.Get(_state, id)} — отключён"));
+            foreach (var card in GameCards)
+                card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
         }
         finally { IsUpdatingDisplayOptions = false; }
         SelectedDisplay = _displays.FirstOrDefault(display => display.Id == selected) ?? OverviewDisplay;

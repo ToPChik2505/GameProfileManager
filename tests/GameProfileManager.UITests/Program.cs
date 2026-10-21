@@ -229,6 +229,30 @@ static void CheckPages(MainWindow window, MainViewModel vm, string output)
         Pump();
         Check(boundGame.Model.ProfileId == vm.Profiles[0].Id, "game profile assignment");
         Capture(window, Path.Combine(output, "03a-game-profile-assigned.png"));
+        var fixedMode = Find<Button>(window).Single(button => button.Name == "FixedGameProfileMode");
+        var autoMode = Find<Button>(window).Single(button => button.Name == "AutoGameProfileMode");
+        Check(!boundGame.AutoSwitchProfile, "single-profile mode is selected for an existing game");
+        autoMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, autoMode));
+        Pump();
+        Check(boundGame.AutoSwitchProfile, "monitor mode enables automatic profile selection");
+        var policyMenu = Find<ComboBox>(window).Single(combo => combo.Name == "GameDisplayPolicyMenu");
+        policyMenu.SelectedValue = DisplayProfilePolicy.WindowsPrimary;
+        Pump();
+        string primaryId = vm.Displays.Single(display => display.IsPrimary).Id;
+        var primaryAssignment = Find<ComboBox>(window).Single(combo => combo.Name == "GameDisplayProfileRowMenu" &&
+            combo.DataContext is DisplayProfileAssignmentRow row && row.DisplayId == primaryId);
+        primaryAssignment.SelectedValue = vm.Profiles[1].Id;
+        Pump();
+        Check(boundGame.Model.DisplayProfileAssignments.Any(assignment => assignment.DisplayId == primaryId &&
+              assignment.ProfileId == vm.Profiles[1].Id) && boundGame.ProfileDisplay == vm.Profiles[1].Name,
+            "monitor row selects the assigned profile");
+        Capture(window, Path.Combine(output, "03b-game-monitor-mode.png"));
+        fixedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, fixedMode));
+        Pump();
+        Check(!boundGame.AutoSwitchProfile && boundGame.ProfileDisplay == vm.Profiles[0].Name &&
+              boundGame.Model.DisplayProfileAssignments.Any(assignment => assignment.DisplayId == primaryId),
+            "single-profile mode ignores saved monitor assignments without deleting them");
+        Capture(window, Path.Combine(output, "03c-game-single-mode.png"));
         gameProfile.SelectedIndex = 0;
         Pump();
         Check(boundGame.Model.ProfileId is null, "empty profile selection clears assignment");

@@ -1,0 +1,69 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (& dotnet msbuild .\src\GameProfileManager\GameProfileManager.csproj -getProperty:Version).Trim()
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match application version $version"
+          }
+
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP 'innosetup-6.7.3.exe'
+          $compilerDir = Join-Path $env:RUNNER_TEMP 'innosetup-compiler'
+          Invoke-WebRequest 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $setup
+          $signature = Get-AuthenticodeSignature -LiteralPath $setup
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Pyrsys') {
+            throw 'The Inno Setup installer signature is invalid or has an unexpected publisher.'
+          }
+          $process = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOICONS /CURRENTUSER /DIR=$compilerDir" -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) { throw "Inno Setup installation failed: $($process.ExitCode)" }
+          $compiler = Join-Path $compilerDir 'ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) { throw 'ISCC.exe was not installed.' }
+          "INNO_COMPILER=$compiler" >> $env:GITHUB_ENV
+
+      - name: Build self-contained installer
+        shell: pwsh
+        run: .\scripts\build-installer.ps1 -InnoCompiler $env:INNO_COMPILER
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameProfileManager-installer
+          path: artifacts/installer/GameProfileManager-Setup-*-win-x64.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(Get-ChildItem .\artifacts\installer\GameProfileManager-Setup-*-win-x64.exe -File)
+          if ($assets.Count -ne 1) { throw "Expected one installer asset, found $($assets.Count)" }
+          $asset = $assets[0].FullName
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $notes = 'Первый выпуск с EXE-установщиком для Windows 11 x64 и ручной проверкой обновлений в настройках. В карточке игры упрощён выбор одного профиля или профилей по мониторам; исправлено отображение боковых списков в узком окне, название игры больше не редактируется. Установщик включает автономную сборку .NET 10 и SDL3, при обновлении сохраняет пользовательскую базу. RTSS и драйвер NVIDIA устанавливаются отдельно.'
+          gh release create $env:GITHUB_REF_NAME $asset --title "Game Profile Manager $version" --notes $notes --verify-tag
+          if ($LASTEXITCODE -ne 0) { throw "GitHub Release creation failed: $LASTEXITCODE" }
