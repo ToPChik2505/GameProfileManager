@@ -72,7 +72,13 @@ public static class DisplayFps
 
         var display = ChooseDisplay(state, game, displays);
         if (display is null)
-            return new(null, null, null, "Выбранный экран недоступен. Проверьте подключение монитора.");
+        {
+            string id = !string.IsNullOrWhiteSpace(game?.DisplayId) ? game.DisplayId : state.DefaultDisplayId;
+            string detail = string.IsNullOrWhiteSpace(id)
+                ? "Windows не обнаружила активный экран для расчёта доли герцовки."
+                : $"Монитор «{DisplayNameCache.Get(state, id)}» отключён или недоступен. Подключите его либо выберите другой экран.";
+            return new(null, null, null, detail);
+        }
         if (display.DynamicRefresh)
             return new(null, null, display, "Для доли герцовки выберите фиксированную частоту в Windows: включена динамическая частота.");
         int? exact = ExactLimit(display, profile.FpsDivisor);

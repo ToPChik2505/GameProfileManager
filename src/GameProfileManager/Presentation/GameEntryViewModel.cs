@@ -28,6 +28,12 @@ public sealed class GameEntryViewModel : Observable, IDisposable
     public Guid? ProfileId { get => Model.ProfileId; set => Model.ProfileId = value; }
     public Guid ProfileSelectionId { get => Model.ProfileSelectionId; set => Model.ProfileSelectionId = value; }
     public string DisplayId { get => Model.DisplayId; set => Model.DisplayId = value; }
+    public bool AutoSwitchProfile { get => Model.AutoSwitchProfile; set => Model.AutoSwitchProfile = value; }
+    public DisplayProfilePolicy DisplayProfilePolicy { get => Model.DisplayProfilePolicy; set => Model.DisplayProfilePolicy = value; }
+    public string DisplayProfileTargetId { get => Model.DisplayProfileTargetId; set => Model.DisplayProfileTargetId = value; }
+    public Guid DisplayAssignmentProfileSelectionId =>
+        Model.DisplayProfileAssignments.FirstOrDefault(assignment =>
+            assignment.DisplayId.Equals(Model.DisplayProfileTargetId, StringComparison.OrdinalIgnoreCase))?.ProfileId ?? Guid.Empty;
     public ApplyStatus Status => Model.Status;
     public string StatusLabel => Model.StatusLabel;
     public string Detail { get => Model.Detail; set => Model.Detail = value; }
@@ -82,6 +88,7 @@ public sealed class GameEntryViewModel : Observable, IDisposable
             Changed(nameof(RtssLimiterDisplay));
             return;
         }
+        if (e.PropertyName == nameof(GameEntry.DisplayProfileTargetId)) Changed(nameof(DisplayAssignmentProfileSelectionId));
         Changed(e.PropertyName switch
         {
             nameof(GameEntry.Name) => nameof(Name),
@@ -89,6 +96,9 @@ public sealed class GameEntryViewModel : Observable, IDisposable
             nameof(GameEntry.ProfileId) => nameof(ProfileId),
             nameof(GameEntry.ProfileSelectionId) => nameof(ProfileSelectionId),
             nameof(GameEntry.DisplayId) => nameof(DisplayId),
+            nameof(GameEntry.DisplayProfileTargetId) => nameof(DisplayProfileTargetId),
+            nameof(GameEntry.AutoSwitchProfile) => nameof(AutoSwitchProfile),
+            nameof(GameEntry.DisplayProfilePolicy) => nameof(DisplayProfilePolicy),
             nameof(GameEntry.Status) => nameof(Status),
             nameof(GameEntry.StatusLabel) => nameof(StatusLabel),
             nameof(GameEntry.Detail) => nameof(Detail),

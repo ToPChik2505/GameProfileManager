@@ -86,7 +86,9 @@ try
 
     var store = new SqliteStateStore(Path.Combine(temp, "db"));
     var state = store.Load();
-    var snapshotGame = new GameEntry { Name = "Снимок", ExePath = @"C:\Games\Snapshot.exe" };
+    var snapshotGame = new GameEntry { Name = "Снимок", ExePath = @"C:\Games\Snapshot.exe", AutoSwitchProfile = true,
+        DisplayProfilePolicy = DisplayProfilePolicy.WindowsPrimary };
+    snapshotGame.DisplayProfileAssignments.Add(new() { DisplayId = "snapshot-display", ProfileId = Guid.NewGuid() });
     state.Games.Add(snapshotGame);
     state.Backups.Add(new SettingBackup { ExePath = snapshotGame.ExePath, ManagedGameId = snapshotGame.Id,
         RtssCaptured = true, RtssProfileExisted = true, RtssFps = 47, RtssSyncLimiter = 2,
@@ -97,7 +99,9 @@ try
            !ReferenceEquals(backgroundState.Backups[0], state.Backups[0]) &&
            JsonSerializer.Serialize(backgroundState) == JsonSerializer.Serialize(state) &&
            backgroundState.Backups[0].RtssFps == 47 && backgroundState.Backups[0].RtssSyncLimiter == 2 &&
-           backgroundState.Backups[0].NvidiaVrr == 4,
+           backgroundState.Backups[0].NvidiaVrr == 4 && backgroundState.Games[0].AutoSwitchProfile &&
+           backgroundState.Games[0].DisplayProfilePolicy == DisplayProfilePolicy.WindowsPrimary &&
+           backgroundState.Games[0].DisplayProfileAssignments.Single().DisplayId == "snapshot-display",
         "background snapshot detaches games, profiles and original integration backups");
     backgroundState.Games[0].Status = ApplyStatus.Applied;
     backgroundState.Games[0].Detail = "Проверено";
@@ -117,6 +121,74 @@ try
     File.WriteAllBytes(exeB, [0x4D, 0x5A]);
     var displayA = new DisplayInfo("a", "Экран A", @"\\.\DISPLAY1", 2560, 1440,
         120000, 1000, true, "DisplayPort", false, false);
+    var resolverDisplayB = displayA with { Id = "b", Name = "Экран B", DeviceName = @"\\.\DISPLAY2", IsPrimary = false };
+    var resolverDefault = new PerformanceProfile { Name = "По умолчанию" };
+    var resolverA = new PerformanceProfile { Name = "Для A" };
+    var resolverB = new PerformanceProfile { Name = "Для B" };
+    var resolverGame = new GameEntry { ProfileId = resolverDefault.Id, AutoSwitchProfile = true,
+        DisplayProfileAssignments = new System.Collections.ObjectModel.ObservableCollection<DisplayProfileAssignment>
+        {
+            new() { DisplayId = "a", ProfileId = resolverA.Id }, new() { DisplayId = "b", ProfileId = resolverB.Id }
+        } };
+    var resolverState = new AppState();
+    resolverState.Profiles.Add(resolverDefault); resolverState.Profiles.Add(resolverA); resolverState.Profiles.Add(resolverB);
+    resolverState.Games.Add(resolverGame);
+    var resolvedPrimaryA = ProfileResolver.Resolve(resolverState, resolverGame, [displayA, resolverDisplayB]);
+    Assert(resolvedPrimaryA.IsResolved && resolvedPrimaryA.Profile == resolverA && resolvedPrimaryA.Display == displayA,
+        "automatic profile resolver selects the assignment for the current Windows primary display");
+    resolverGame.DisplayProfilePolicy = DisplayProfilePolicy.PinnedDisplay;
+    resolverGame.DisplayId = "b";
+    var resolvedPinnedB = ProfileResolver.Resolve(resolverState, resolverGame, [displayA, resolverDisplayB]);
+    Assert(resolvedPinnedB.IsResolved && resolvedPinnedB.Profile == resolverB,
+        "automatic profile resolver supports an explicitly pinned display");
+    resolverGame.DisplayId = "missing";
+    Assert(!ProfileResolver.Resolve(resolverState, resolverGame, [displayA, resolverDisplayB]).IsResolved,
+        "unavailable pinned display returns no decision");
+    resolverGame.DisplayId = "b";
+    resolverGame.DisplayProfileAssignments.Add(new() { DisplayId = "B", ProfileId = resolverA.Id });
+    Assert(!ProfileResolver.Resolve(resolverState, resolverGame, [displayA, resolverDisplayB]).IsResolved,
+        "duplicate display assignment IDs are rejected case insensitively");
+    resolverGame.DisplayProfileAssignments.RemoveAt(2);
+    resolverGame.DisplayProfileAssignments.RemoveAt(1);
+    var fallbackResolution = ProfileResolver.Resolve(resolverState, resolverGame, [displayA, resolverDisplayB]);
+    Assert(fallbackResolution.IsResolved && fallbackResolution.Profile == resolverDefault,
+        "missing per-display assignment uses the explicit default profile fallback");
+    var oldGame = JsonSerializer.Deserialize<GameEntry>("{\"ProfileId\":\"" + resolverDefault.Id + "\",\"DisplayId\":\"a\"}")!;
+    Assert(!oldGame.AutoSwitchProfile && oldGame.DisplayProfileAssignments.Count == 0 && oldGame.ProfileId == resolverDefault.Id,
+        "legacy game JSON keeps its assignment and defaults automatic switching off");
+    Console.WriteLine("PASS monitor-specific profile resolution and legacy defaults");
+
+    var autoState = new AppState();
+    var autoProfileA = new PerformanceProfile { Name = "A", FpsLimit = 60 };
+    var autoProfileB = new PerformanceProfile { Name = "B", FpsLimit = 90 };
+    autoState.Profiles.Add(autoProfileA); autoState.Profiles.Add(autoProfileB);
+    var autoGame = new GameEntry { Name = "Automatic", ExePath = exeA, ProfileId = autoProfileA.Id,
+        AutoSwitchProfile = true, DisplayProfilePolicy = DisplayProfilePolicy.WindowsPrimary };
+    autoGame.DisplayProfileAssignments.Add(new() { DisplayId = "a", ProfileId = autoProfileA.Id });
+    autoGame.DisplayProfileAssignments.Add(new() { DisplayId = "b", ProfileId = autoProfileB.Id });
+    autoState.Games.Add(autoGame);
+    IReadOnlyList<DisplayInfo> autoDisplays = [displayA, resolverDisplayB];
+    var autoRtss = new FakeRtss { Exists = true, Fps = 44, LimiterMode = 1 };
+    var autoNvidia = new FakeNvidia();
+    var autoSync = new SyncService(store, _ => autoRtss, () => autoNvidia, () => autoDisplays);
+    autoSync.ApplyOne(autoState, autoGame);
+    Assert(autoGame.Status == ApplyStatus.Applied && autoRtss.Fps == 60 && autoState.Backups.Single().RtssFps == 44,
+        "automatic application uses the active display assignment and captures the original values");
+    int autoWrites = autoRtss.WriteCalls, autoNvidiaWrites = autoNvidia.ApplyCalls;
+    autoSync.ApplyOne(autoState, autoGame);
+    Assert(autoRtss.WriteCalls == autoWrites && autoNvidia.ApplyCalls == autoNvidiaWrites,
+        "unchanged effective automatic profile produces no external writes");
+    autoDisplays = [displayA with { IsPrimary = false }, resolverDisplayB with { IsPrimary = true }];
+    autoSync.ApplyOne(autoState, autoGame);
+    Assert(autoRtss.Fps == 90 && autoState.Backups.Single().RtssFps == 44,
+        "primary display change applies its profile without replacing the original backup");
+    autoWrites = autoRtss.WriteCalls; autoNvidiaWrites = autoNvidia.ApplyCalls;
+    autoDisplays = [];
+    autoSync.ApplyOne(autoState, autoGame);
+    Assert(autoGame.Status == ApplyStatus.Unsupported && autoRtss.WriteCalls == autoWrites &&
+           autoNvidia.ApplyCalls == autoNvidiaWrites && autoRtss.Fps == 90 && autoState.Backups.Single().RtssFps == 44,
+        "unresolved automatic display leaves the current settings and backup untouched");
+    Console.WriteLine("PASS automatic apply readback, no-op, display change and unresolved safety");
 
     AppState FixedRefreshState(int fps, VrrMode vrr = VrrMode.FixedRefresh, string? displayId = null)
     {

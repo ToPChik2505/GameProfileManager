@@ -23,6 +23,13 @@ public enum FpsLimitMode { Manual, DisplayFraction }
 public enum RtssLimiterMode { Async = 0, FrontEdgeSync = 1, BackEdgeSync = 2, NvidiaReflex = 3 }
 public enum VSyncMode { ApplicationControlled, On, Off }
 public enum ApplyStatus { Pending, Applied, RestartRequired, Unsupported, Error }
+public enum DisplayProfilePolicy { PreferredDisplay, WindowsPrimary, PinnedDisplay }
+
+public sealed class DisplayProfileAssignment
+{
+    public string DisplayId { get; set; } = "";
+    public Guid ProfileId { get; set; }
+}
 
 public static class ProfileLabels
 {
@@ -120,6 +127,13 @@ public sealed class GameEntry : Observable
     private string _displayId = "";
     private ApplyStatus _status = ApplyStatus.Pending;
     private string _detail = "Исполняемый файл и профиль ещё не назначены";
+    private bool _autoSwitchProfile;
+    private DisplayProfilePolicy _displayProfilePolicy;
+    private string _displayProfileTargetId = "";
+    public ObservableCollection<DisplayProfileAssignment> DisplayProfileAssignments { get; set; } = new();
+    public bool AutoSwitchProfile { get => _autoSwitchProfile; set { if (Set(ref _autoSwitchProfile, value)) Changed(nameof(StatusLabel)); } }
+    public DisplayProfilePolicy DisplayProfilePolicy { get => _displayProfilePolicy; set => Set(ref _displayProfilePolicy, value); }
+    public string DisplayProfileTargetId { get => _displayProfileTargetId; set => Set(ref _displayProfileTargetId, value ?? ""); }
     public string Name { get => _name; set => Set(ref _name, value); }
     public string ExePath { get => _exePath; set { if (Set(ref _exePath, value)) { Changed(nameof(ExeDisplay)); Changed(nameof(StatusLabel)); } } }
     [JsonIgnore] public string ExeDisplay => string.IsNullOrWhiteSpace(ExePath) ? "Нужно выбрать игровой .exe" : ExePath;
@@ -130,7 +144,7 @@ public sealed class GameEntry : Observable
     {
         ApplyStatus.Error => "Ошибка",
         ApplyStatus.Unsupported => "Недоступно",
-        _ when ProfileId is null => "Без профиля",
+        _ when ProfileId is null && !AutoSwitchProfile => "Без профиля",
         _ when string.IsNullOrWhiteSpace(ExePath) => "Нужен .exe",
         ApplyStatus.Applied => "Применён",
         ApplyStatus.RestartRequired => "Перезапустите",
@@ -184,5 +198,16 @@ public sealed class AppState
     public bool MinimizeToTray { get; set; }
     public string Theme { get; set; } = "Dark";
     public string DefaultDisplayId { get; set; } = "";
+    public Dictionary<string, string> DisplayNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public DateTimeOffset? LastSync { get; set; }
+}
+
+public static class DisplayNameCache
+{
+    public static string Get(AppState state, string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return "Неизвестный монитор";
+        var pair = state.DisplayNames.FirstOrDefault(entry => entry.Key.Equals(id, StringComparison.OrdinalIgnoreCase));
+        return string.IsNullOrWhiteSpace(pair.Value) ? id : pair.Value;
+    }
 }

@@ -72,7 +72,24 @@ public sealed class SyncService
                 DuplicateExecutableName = !string.IsNullOrWhiteSpace(game.ExePath) && HasDuplicateExeName(state, game)
             };
             observations?.Add(game.Id, readback);
-            var profile = state.Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
+            var resolution = ProfileResolver.Resolve(state, game, displays);
+            if (!resolution.IsResolved)
+            {
+                if (game.AutoSwitchProfile)
+                {
+                    game.Status = ApplyStatus.Unsupported;
+                    game.Detail = resolution.Reason + "; внешние настройки не изменены";
+                }
+                else
+                {
+                    game.Status = ApplyStatus.Pending;
+                    game.Detail = state.Backups.Any(b => b.ManagedGameId == game.Id)
+                        ? "Профиль отключён. Нажмите «Применить», чтобы восстановить исходные параметры."
+                        : "Профиль не выбран: параметры не применяются";
+                }
+                continue;
+            }
+            var profile = resolution.Profile!;
             if (profile is null || string.IsNullOrWhiteSpace(game.ExePath))
             {
                 game.Status = ApplyStatus.Pending;
@@ -84,7 +101,7 @@ public sealed class SyncService
             if (!readback.ExecutableExists) { game.Status = ApplyStatus.Error; game.Detail = "Файл игры не найден"; continue; }
             if (readback.DuplicateExecutableName)
             { game.Status = ApplyStatus.Unsupported; game.Detail = "Несколько записей используют одно имя .exe в RTSS"; continue; }
-            var fps = DisplayFps.Resolve(state, game, profile, displays);
+            var fps = ResolveFps(state, game, profile, displays, resolution);
             readback.ExpectedRtssFps = fps.Fps;
             if (fps.Fps is null) { game.Status = ApplyStatus.Unsupported; game.Detail = fps.Detail; continue; }
             var limiterMode = RtssLimiterModeResolver.Resolve(state, profile);
@@ -177,20 +194,27 @@ public sealed class SyncService
 
     private void ApplyCore(AppState state, GameEntry game, IReadOnlyList<DisplayInfo> displays)
     {
-        var profile = state.Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
-        if (profile is null)
+        var resolution = ProfileResolver.Resolve(state, game, displays);
+        if (!resolution.IsResolved)
         {
-            if (state.Backups.Any(b => b.ManagedGameId == game.Id)) Restore(state, game);
-            else { game.Status = ApplyStatus.Pending; game.Detail = "Профиль не выбран: параметры не применяются"; }
+            // An unresolved automatic display choice must never restore or rewrite the currently active settings.
+            if (game.AutoSwitchProfile)
+            {
+                game.Status = ApplyStatus.Unsupported;
+                game.Detail = resolution.Reason + "; текущие внешние настройки оставлены без изменений";
+            }
+            else if (state.Backups.Any(b => b.ManagedGameId == game.Id)) Restore(state, game);
+            else { game.Status = ApplyStatus.Pending; game.Detail = resolution.Reason; }
             return;
         }
+        var profile = resolution.Profile!;
         if (string.IsNullOrWhiteSpace(game.ExePath)) { game.Status = ApplyStatus.Pending; game.Detail = "Выберите игровой .exe"; return; }
         if (!File.Exists(game.ExePath)) { game.Status = ApplyStatus.Error; game.Detail = "Файл игры не найден"; return; }
         if (HasDuplicateExeName(state, game))
         { game.Status = ApplyStatus.Unsupported; game.Detail = "RTSS сопоставляет профиль по имени .exe; обнаружено совпадение у разных игр"; return; }
         if (string.IsNullOrWhiteSpace(profile.Name))
         { game.Status = ApplyStatus.Error; game.Detail = "Некорректный профиль"; return; }
-        var fps = DisplayFps.Resolve(state, game, profile, displays);
+        var fps = ResolveFps(state, game, profile, displays, resolution);
         if (fps.Fps is not int targetFps)
         {
             if (state.Backups.Any(backup => backup.ManagedGameId == game.Id))
@@ -292,6 +316,18 @@ public sealed class SyncService
             _store.Save(state);
         }
         finally { nvidia?.Dispose(); rtss?.Dispose(); }
+    }
+
+    private static FpsResolution ResolveFps(AppState state, GameEntry game, PerformanceProfile profile,
+        IReadOnlyList<DisplayInfo> displays, ProfileResolution resolution)
+    {
+        if (!game.AutoSwitchProfile || profile.FpsMode == FpsLimitMode.Manual)
+            return DisplayFps.Resolve(state, game, profile, displays);
+        if (resolution.Display is null)
+            return new(null, null, null, "Для автоматического выбора профиля не определён дисплей");
+        var selectedGame = new GameEntry { DisplayId = resolution.Display.Id };
+        var selectedState = new AppState { DefaultDisplayId = resolution.Display.Id };
+        return DisplayFps.Resolve(selectedState, selectedGame, profile, [resolution.Display]);
     }
 
     public void Restore(AppState state, GameEntry game)

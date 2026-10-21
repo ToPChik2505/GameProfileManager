@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private HwndSource? _windowSource;
     private bool _exitRequested;
     private bool _trayHintShown;
+    private bool _updatingWindowMinimum;
     private WindowState _restoreWindowState = WindowState.Normal;
 
     public MainWindow() : this(null)
@@ -71,11 +72,13 @@ public partial class MainWindow : Window
 
     private void UpdateResponsiveLayout()
     {
+        UpdateWindowMinimumSizeForMonitor();
         if (ActualWidth <= 0) return;
         bool narrow = ActualWidth < 900;
         bool medium = ActualWidth < 1150;
         ContentColumns = narrow ? 1 : 2;
         OverviewStatColumns = narrow ? 1 : 3;
+        UpdateGameCardLayouts();
 
         GameListColumn.Width = new GridLength(narrow ? 170 : medium ? 260 : 360);
         GameGapColumn.Width = new GridLength(narrow ? 10 : 18);
@@ -94,6 +97,57 @@ public partial class MainWindow : Window
 
         if (RootTabs.Template.FindName("PageContent", RootTabs) is ContentPresenter page)
             page.Margin = narrow ? new Thickness(18, 18, 18, 14) : new Thickness(30, 25, 30, 22);
+    }
+
+    private void GameCardsGrid_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is Grid grid) UpdateGameCardLayout(grid);
+    }
+
+    private void GameCardsGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (sender is Grid grid) UpdateGameCardLayout(grid);
+    }
+
+    private void UpdateGameCardLayouts()
+    {
+        if (FindVisualChild<Grid>(GameInspector, "GameCardsGrid") is { } grid)
+            UpdateGameCardLayout(grid);
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent, string name) where T : FrameworkElement
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+            if (child is T match && match.Name == name) return match;
+            if (FindVisualChild<T>(child, name) is { } descendant) return descendant;
+        }
+        return null;
+    }
+
+    private void UpdateGameCardLayout(Grid grid)
+    {
+        bool singleColumn = ContentColumns == 1;
+        GridLength secondColumnWidth = singleColumn
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        if (grid.ColumnDefinitions[1].Width != secondColumnWidth)
+            grid.ColumnDefinitions[1].Width = secondColumnWidth;
+
+        var cards = grid.Children.OfType<Border>().ToArray();
+        if (cards.Length != 4) return;
+        Place(cards[0], 0, 0);
+        Place(cards[1], singleColumn ? 1 : 0, singleColumn ? 0 : 1);
+        Place(cards[2], singleColumn ? 2 : 1, 0);
+        Place(cards[3], singleColumn ? 3 : 1, singleColumn ? 0 : 1);
+
+        void Place(Border card, int row, int column)
+        {
+            Grid.SetRow(card, row);
+            Grid.SetColumn(card, column);
+            card.VerticalAlignment = singleColumn ? VerticalAlignment.Top : VerticalAlignment.Stretch;
+        }
     }
 
     private void ViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -198,6 +252,15 @@ public partial class MainWindow : Window
     private IntPtr WindowMessageHook(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         const int wmGetMinMaxInfo = 0x0024;
+        const int wmDpiChanged = 0x02E0;
+        if (message == wmDpiChanged)
+        {
+            // WPF processes WM_DPICHANGED and updates its device transform. Refresh
+            // responsive thresholds and size limits after that update, without consuming the message.
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                new Action(UpdateResponsiveLayout));
+            return IntPtr.Zero;
+        }
         if (message != wmGetMinMaxInfo || lParam == IntPtr.Zero) return IntPtr.Zero;
 
         IntPtr monitor = MonitorFromWindow(hwnd, 2); // MONITOR_DEFAULTTONEAREST
@@ -208,17 +271,53 @@ public partial class MainWindow : Window
         var bounds = Marshal.PtrToStructure<MinMaxInfo>(lParam);
         bounds.MaxPosition.X = monitorInfo.Work.Left - monitorInfo.Monitor.Left;
         bounds.MaxPosition.Y = monitorInfo.Work.Top - monitorInfo.Monitor.Top;
-        // Один физический пиксель оставляет видимую рамку WindowChrome в рабочей области.
-        bounds.MaxSize.X = monitorInfo.Work.Right - monitorInfo.Work.Left - 1;
-        bounds.MaxSize.Y = monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1;
-        // Обработка WM_GETMINMAXINFO обходит минимальный размер WPF.
-        // Windows ожидает здесь физические пиксели, а MinWidth/MinHeight заданы в DIP.
-        var deviceScale = HwndSource.FromHwnd(hwnd)?.CompositionTarget?.TransformToDevice ?? Matrix.Identity;
-        bounds.MinTrackSize.X = Math.Max(bounds.MinTrackSize.X, (int)Math.Ceiling(MinWidth * deviceScale.M11));
-        bounds.MinTrackSize.Y = Math.Max(bounds.MinTrackSize.Y, (int)Math.Ceiling(MinHeight * deviceScale.M22));
+        // MINMAXINFO uses physical pixels. Bound both maximize and interactive resize
+        // to this monitor's work area; the nearest monitor can have another DPI.
+        int maxWidth = Math.Max(1, monitorInfo.Work.Right - monitorInfo.Work.Left - 1);
+        int maxHeight = Math.Max(1, monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1);
+        bounds.MaxSize.X = maxWidth;
+        bounds.MaxSize.Y = maxHeight;
+        bounds.MaxTrackSize.X = maxWidth;
+        bounds.MaxTrackSize.Y = maxHeight;
+
+        // WPF minimums are in DIPs. Convert using the HWND's current monitor DPI,
+        // then clamp them so a high scale factor cannot force the window off-screen.
+        uint dpi = GetDpiForWindow(hwnd);
+        double scale = dpi == 0 ? 1d : dpi / 96d;
+        int minWidth = (int)Math.Ceiling(MinWidth * scale);
+        int minHeight = (int)Math.Ceiling(MinHeight * scale);
+        bounds.MinTrackSize.X = Math.Min(maxWidth, Math.Max(bounds.MinTrackSize.X, minWidth));
+        bounds.MinTrackSize.Y = Math.Min(maxHeight, Math.Max(bounds.MinTrackSize.Y, minHeight));
         Marshal.StructureToPtr(bounds, lParam, false);
         handled = true;
         return IntPtr.Zero;
+    }
+
+    private void UpdateWindowMinimumSizeForMonitor()
+    {
+        if (_updatingWindowMinimum) return;
+        IntPtr hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        IntPtr monitor = MonitorFromWindow(hwnd, 2); // MONITOR_DEFAULTTONEAREST
+        if (monitor == IntPtr.Zero) return;
+        var monitorInfo = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref monitorInfo)) return;
+
+        uint dpi = GetDpiForWindow(hwnd);
+        double scale = dpi == 0 ? 1d : dpi / 96d;
+        double availableWidth = Math.Max(1, monitorInfo.Work.Right - monitorInfo.Work.Left - 1) / scale;
+        double availableHeight = Math.Max(1, monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1) / scale;
+        double minWidth = Math.Min(800, availableWidth);
+        double minHeight = Math.Min(680, availableHeight);
+        if (Math.Abs(MinWidth - minWidth) < 0.01 && Math.Abs(MinHeight - minHeight) < 0.01) return;
+
+        _updatingWindowMinimum = true;
+        try
+        {
+            MinWidth = minWidth;
+            MinHeight = minHeight;
+        }
+        finally { _updatingWindowMinimum = false; }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -252,6 +351,9 @@ public partial class MainWindow : Window
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr hwnd);
 
     private void UpdateTitleBarTheme()
     {
@@ -366,6 +468,21 @@ public partial class MainWindow : Window
         if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
             sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ModeOption<string> option })
             game.Model.DisplayId = option.Value;
+    }
+
+    private void GameDisplayProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
+            sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ProfileOption option })
+            vm.SetDisplayProfileAssignment(game.Model, game.Model.DisplayProfileTargetId,
+                option.Id == Guid.Empty ? null : option.Id);
+    }
+
+    private void GameProfileAssignmentDisplay_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
+            sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ModeOption<string> option })
+            game.DisplayProfileTargetId = option.Value;
     }
 
     private void Fraction_SelectionChanged(object sender, SelectionChangedEventArgs e)

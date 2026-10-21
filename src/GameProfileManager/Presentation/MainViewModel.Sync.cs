@@ -25,9 +25,12 @@ public sealed partial class MainViewModel
                 AppStateSnapshot.PublishResults(snapshot, _state);
                 if (checkError is not null) throw checkError;
                 RefreshDisplays();
-                bool needsApply = Games.Any(game => game.Status != ApplyStatus.Applied && game.ProfileId is not null &&
+                var displays = Displays.ToArray();
+                bool needsApply = Games.Any(game => game.Status != ApplyStatus.Applied &&
+                    ProfileResolver.Resolve(_state, game, displays).IsResolved &&
                     !string.IsNullOrWhiteSpace(game.ExePath)) ||
-                    Games.Any(game => game.ProfileId is null && _state.Backups.Any(backup => backup.ManagedGameId == game.Id));
+                    Games.Any(game => !game.AutoSwitchProfile && game.ProfileId is null &&
+                        _state.Backups.Any(backup => backup.ManagedGameId == game.Id));
                 if (!needsApply)
                 {
                     Notice = "Проверка завершена: сохранённые параметры совпадают.";

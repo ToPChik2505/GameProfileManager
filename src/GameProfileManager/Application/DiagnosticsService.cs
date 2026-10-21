@@ -78,7 +78,7 @@ public sealed record DiagnosticProfileSnapshot(Guid Id, int FpsLimit, FpsLimitMo
     int FpsDivisor, VrrMode Vrr, VSyncMode VSync);
 
 public sealed record DiagnosticGameSnapshot(Guid Id, string Name, string ExePath, Guid? ProfileId,
-    string DisplayId, ApplyStatus Status, string Detail, DateTimeOffset? LastApplied, bool HasBackup, DiagnosticProfileSnapshot? Profile,
+    string DisplayId, string DisplayName, ApplyStatus Status, string Detail, DateTimeOffset? LastApplied, bool HasBackup, DiagnosticProfileSnapshot? Profile,
     GameDiagnosticsReadback? Readback);
 
 public sealed record DiagnosticsSnapshot(string DefaultDisplayId, IReadOnlyList<DiagnosticGameSnapshot> Games,
@@ -96,8 +96,9 @@ public static class DiagnosticsService
         var games = state.Games.Select(game =>
         {
             var profile = state.Profiles.FirstOrDefault(candidate => candidate.Id == game.ProfileId);
+            string selectedDisplayId = !string.IsNullOrWhiteSpace(game.DisplayId) ? game.DisplayId : state.DefaultDisplayId;
             return new DiagnosticGameSnapshot(game.Id, game.Name, game.ExePath, game.ProfileId,
-                game.DisplayId, game.Status, game.Detail, game.LastApplied,
+                game.DisplayId, DisplayNameCache.Get(state, selectedDisplayId), game.Status, game.Detail, game.LastApplied,
                 SettingBackupOwnership.HasForGame(state, game),
                 profile is null ? null : new(profile.Id, profile.FpsLimit, profile.FpsMode,
                     profile.FpsDivisor, profile.Vrr, profile.VSync),
@@ -187,6 +188,9 @@ public static class DiagnosticsService
 
         var profile = game.Profile;
         var appState = new AppState { DefaultDisplayId = snapshot.DefaultDisplayId };
+        string selectedDisplayId = !string.IsNullOrWhiteSpace(game.DisplayId) ? game.DisplayId : snapshot.DefaultDisplayId;
+        if (!string.IsNullOrWhiteSpace(selectedDisplayId))
+            appState.DisplayNames[selectedDisplayId] = game.DisplayName;
         var gameEntry = new GameEntry { DisplayId = game.DisplayId };
         var profileEntry = new PerformanceProfile
         {
@@ -206,7 +210,7 @@ public static class DiagnosticsService
         {
             Add(DiagnosticRule.DisplayUnavailable, DiagnosticSeverity.Error,
                 "Выбранный монитор недоступен", hasSelectedDisplay
-                    ? $"Экран с ID «{(!string.IsNullOrWhiteSpace(game.DisplayId) ? game.DisplayId : snapshot.DefaultDisplayId)}» не найден среди подключённых дисплеев."
+                    ? $"Монитор «{game.DisplayName}» отключён или недоступен. Его ID: {(!string.IsNullOrWhiteSpace(game.DisplayId) ? game.DisplayId : snapshot.DefaultDisplayId)}."
                     : "Windows не обнаружила экран для расчёта доли герцовки.",
                 "Подключите выбранный экран либо выберите доступный экран в настройках.", DiagnosticActionTarget.Game);
         }

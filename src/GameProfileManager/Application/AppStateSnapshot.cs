@@ -20,6 +20,7 @@ public static class AppStateSnapshot
             MinimizeToTray = source.MinimizeToTray,
             Theme = source.Theme,
             DefaultDisplayId = source.DefaultDisplayId,
+            DisplayNames = new Dictionary<string, string>(source.DisplayNames, StringComparer.OrdinalIgnoreCase),
             LastSync = source.LastSync
         };
         foreach (var profile in source.Profiles)
@@ -35,6 +36,11 @@ public static class AppStateSnapshot
             {
                 Id = game.Id, Name = game.Name, ExePath = game.ExePath,
                 ProfileId = game.ProfileId, DisplayId = game.DisplayId,
+                AutoSwitchProfile = game.AutoSwitchProfile, DisplayProfilePolicy = game.DisplayProfilePolicy,
+                DisplayProfileTargetId = game.DisplayProfileTargetId,
+                DisplayProfileAssignments = new System.Collections.ObjectModel.ObservableCollection<DisplayProfileAssignment>(
+                    game.DisplayProfileAssignments.Select(assignment => new DisplayProfileAssignment
+                    { DisplayId = assignment.DisplayId, ProfileId = assignment.ProfileId })),
                 Status = game.Status, Detail = game.Detail,
                 SteamAppId = game.SteamAppId, EpicAppName = game.EpicAppName,
                 InstallDirectory = game.InstallDirectory, LastApplied = game.LastApplied

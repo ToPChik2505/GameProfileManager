@@ -57,6 +57,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ObservableCollection<DisplayInfo> Displays => _displays;
     public ObservableCollection<ModeOption<string>> DefaultDisplayOptions { get; } = new();
     public ObservableCollection<ModeOption<string>> GameDisplayOptions { get; } = new();
+    public ObservableCollection<ModeOption<string>> ProfileAssignmentDisplayOptions { get; } = new();
     public ObservableCollection<ModeOption<int>> FpsFractions { get; } = new();
     public IReadOnlyList<ModeOption<string>> ThemeOptions { get; } =
     [
@@ -78,6 +79,12 @@ public sealed partial class MainViewModel : Observable, IDisposable
         new((int)RtssLimiterMode.BackEdgeSync, ProfileLabels.Rtss(RtssLimiterMode.BackEdgeSync)),
         new((int)RtssLimiterMode.NvidiaReflex, ProfileLabels.Rtss(RtssLimiterMode.NvidiaReflex))
     ];
+    public IReadOnlyList<ModeOption<DisplayProfilePolicy>> DisplayProfilePolicies { get; } =
+    [
+        new(DisplayProfilePolicy.PreferredDisplay, "Экран игры (иначе — по умолчанию)"),
+        new(DisplayProfilePolicy.WindowsPrimary, "Основной экран Windows"),
+        new(DisplayProfilePolicy.PinnedDisplay, "Только экран, выбранный для игры")
+    ];
     public ObservableCollection<AttentionItem> AttentionItems { get; } = new();
     public bool IsUpdatingDisplayOptions { get; private set; }
     public bool IsUpdatingFpsOptions { get; private set; }
@@ -86,6 +93,27 @@ public sealed partial class MainViewModel : Observable, IDisposable
         new(FpsLimitMode.Manual, "Ввести FPS вручную"),
         new(FpsLimitMode.DisplayFraction, "Доля частоты экрана")
     ];
+    public void SetDisplayProfileAssignment(GameEntry game, string displayId, Guid? profileId)
+    {
+        if (_busy || string.IsNullOrWhiteSpace(displayId)) return;
+        var existing = game.DisplayProfileAssignments.FirstOrDefault(item =>
+            item.DisplayId.Equals(displayId, StringComparison.OrdinalIgnoreCase));
+        if (profileId is null)
+        {
+            if (existing is not null) game.DisplayProfileAssignments.Remove(existing);
+        }
+        else if (existing is null)
+            game.DisplayProfileAssignments.Add(new DisplayProfileAssignment { DisplayId = displayId, ProfileId = profileId.Value });
+        else existing.ProfileId = profileId.Value;
+        if (game.AutoSwitchProfile)
+        {
+            game.Status = ApplyStatus.Pending;
+            game.Detail = "Назначение профиля для дисплея изменено";
+        }
+        _latestDiagnosticsProbe = null;
+        if (_gameCards.TryGetValue(game, out var card)) card.Changed(nameof(GameEntryViewModel.DisplayAssignmentProfileSelectionId));
+        RefreshDisplays(); SaveOnly(false);
+    }
     public ObservableCollection<PerformanceProfile> Profiles => _state.Profiles;
     public ObservableCollection<ProfileOption> ProfileOptions { get; } = new();
     public ICollectionView GamesView { get; }
@@ -188,12 +216,20 @@ public sealed partial class MainViewModel : Observable, IDisposable
         set
         {
             if (_state.DefaultDisplayId == value) return;
+            var displays = _displays.ToArray();
+            var oldConfigurations = Games.Where(game => game.AutoSwitchProfile &&
+                    game.DisplayProfilePolicy == DisplayProfilePolicy.PreferredDisplay && string.IsNullOrWhiteSpace(game.DisplayId))
+                .ToDictionary(game => game.Id, game => ProfileResolver.ResolveConfiguration(_state, game, displays));
             _state.DefaultDisplayId = value ?? "";
             Changed(nameof(DefaultDisplayId));
             foreach (var game in Games.Where(g => string.IsNullOrWhiteSpace(g.DisplayId) &&
-                         Profiles.Any(p => p.Id == g.ProfileId && p.FpsMode == FpsLimitMode.DisplayFraction)))
+                         (!g.AutoSwitchProfile || g.DisplayProfilePolicy == DisplayProfilePolicy.PreferredDisplay) &&
+                         ActiveProfileIds(g).Any(id => Profiles.Any(p => p.Id == id && p.FpsMode == FpsLimitMode.DisplayFraction))))
             { game.Status = ApplyStatus.Pending; game.Detail = "Экран по умолчанию изменён; примените профиль"; }
+            var autoChanged = Games.Where(game => oldConfigurations.TryGetValue(game.Id, out var previous) &&
+                previous != ProfileResolver.ResolveConfiguration(_state, game, displays)).ToArray();
             RefreshDisplays(); UpdateFpsFractions(); UpdateDisplaySummary(); SaveOnly();
+            if (autoChanged.Length > 0) _ = ApplyDisplayChangesAsync(autoChanged);
         }
     }
     public bool MinimizeToTray
@@ -246,7 +282,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
             var inherited = Profiles.Where(profile => profile.RtssLimiterMode is null)
                 .Select(profile => profile.Id).ToHashSet();
             foreach (var profileId in inherited) _effectiveRtssModes[profileId] = value;
-            foreach (var game in Games.Where(game => game.ProfileId is { } id && inherited.Contains(id)))
+            foreach (var game in Games.Where(game => EffectiveProfileIds(game).Any(inherited.Contains)))
             { game.Status = ApplyStatus.Pending; game.Detail = "Режим лимитера RTSS изменён; примените профиль"; }
             Changed(nameof(SelectedProfileEffectiveRtssModeLabel));
             RefreshDisplays();
@@ -357,7 +393,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
         int obsoleteUtilities = 0;
         foreach (var utility in Games.Where(g => g.SteamAppId is not null && SteamDiscovery.NonGameAppIds.Contains(g.SteamAppId) &&
-                     g.ProfileId is null && !SettingBackupOwnership.HasForGame(_state, g)).ToArray())
+                     g.ProfileId is null && !g.AutoSwitchProfile && g.DisplayProfileAssignments.Count == 0 &&
+                     !SettingBackupOwnership.HasForGame(_state, g)).ToArray())
         {
             Games.Remove(utility);
             obsoleteUtilities++;
@@ -385,7 +422,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         {
             if (SelectedProfile is null) return;
             if (SelectedProfile.IsBuiltIn) { Notice = "Стандартный профиль нельзя удалить."; return; }
-            if (Games.Any(g => g.ProfileId == SelectedProfile.Id)) { Notice = "Сначала переназначьте игры этого профиля."; return; }
+            if (Games.Any(g => EffectiveProfileIds(g).Contains(SelectedProfile.Id))) { Notice = "Сначала переназначьте игры этого профиля."; return; }
             _effectiveRtssModes.Remove(SelectedProfile.Id);
             ProfileOptions.Remove(ProfileOptions.Single(option => option.Id == SelectedProfile.Id));
             Unhook(SelectedProfile);

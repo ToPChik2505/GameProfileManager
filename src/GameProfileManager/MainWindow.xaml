@@ -537,8 +537,10 @@
                             </Border>
                           </StackPanel>
                         </Border>
-                        <UniformGrid Columns="{Binding ContentColumns, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,0,-12,-12">
-                          <Border Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
+                        <Grid x:Name="GameCardsGrid" Margin="0,0,-12,-12" Loaded="GameCardsGrid_Loaded" SizeChanged="GameCardsGrid_SizeChanged">
+                          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                          <Border Grid.Row="0" Grid.Column="0" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
                             <StackPanel>
                               <TextBlock Text="НАЗНАЧЕНИЕ" Style="{StaticResource Eyebrow}" Margin="0,0,0,14"/>
                               <TextBlock Text="Профиль игры" Style="{StaticResource FieldLabel}"/>
@@ -549,18 +551,33 @@
                               <TextBlock Text="Выбор сохраняется автоматически. Применение обновляет RTSS и NVIDIA." Style="{StaticResource Muted}" FontSize="11" Margin="0,12,0,0"/>
                             </StackPanel>
                           </Border>
-                          <Border Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
+                          <Border Grid.Row="0" Grid.Column="1" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
                             <StackPanel>
                               <TextBlock Text="ОСНОВНЫЕ НАСТРОЙКИ" Style="{StaticResource Eyebrow}" Margin="0,0,0,14"/>
                               <TextBlock Text="Название игры" Style="{StaticResource FieldLabel}"/>
                               <TextBox Tag="Название игры" Text="{Binding Name, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}"/>
-                              <TextBlock Text="Экран для расчёта FPS" Style="{StaticResource FieldLabel}" Margin="0,12,0,8"/>
+                              <TextBlock Text="1. Экран для расчёта FPS" Style="{StaticResource FieldLabel}" Margin="0,12,0,8"/>
                               <ComboBox x:Name="GameDisplayMenu" ItemsSource="{Binding DataContext.GameDisplayOptions, RelativeSource={RelativeSource AncestorType=Window}}" SelectedValuePath="Value" SelectedValue="{Binding DisplayId, Mode=OneWay}" SelectionChanged="GameDisplay_SelectionChanged" IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}">
                                 <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate></ComboBox.ItemTemplate>
                               </ComboBox>
+                              <CheckBox Content="2. Автоматически менять профиль по дисплею" IsChecked="{Binding AutoSwitchProfile, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}" Margin="0,14,0,0"/>
+                              <TextBlock Text="Как выбрать профиль по экрану" Style="{StaticResource FieldLabel}" Margin="0,12,0,8"/>
+                              <ComboBox ItemsSource="{Binding DataContext.DisplayProfilePolicies, RelativeSource={RelativeSource AncestorType=Window}}" SelectedValuePath="Value" SelectedValue="{Binding DisplayProfilePolicy, Mode=TwoWay}" IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate></ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Text="«Экран игры» берётся из шага 1. Первый вариант, если он не выбран, использует общий экран по умолчанию. Второй всегда берёт основной экран Windows. Третий использует только экран из шага 1; если он не выбран или отключён, автосмена не сработает. Приложение не отслеживает, на каком экране открыто окно игры." Style="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                              <TextBlock Text="3. Выберите монитор, которому назначаете профиль" Style="{StaticResource FieldLabel}" Margin="0,14,0,8"/>
+                              <ComboBox ItemsSource="{Binding DataContext.ProfileAssignmentDisplayOptions, RelativeSource={RelativeSource AncestorType=Window}}" SelectedValuePath="Value" SelectedValue="{Binding DisplayProfileTargetId, Mode=OneWay}" SelectionChanged="GameProfileAssignmentDisplay_SelectionChanged" IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate></ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Text="Профиль для выбранного монитора" Style="{StaticResource FieldLabel}" Margin="0,12,0,8"/>
+                              <ComboBox ItemsSource="{Binding DataContext.ProfileOptions, RelativeSource={RelativeSource AncestorType=Window}}" SelectedValuePath="Id" SelectedValue="{Binding DisplayAssignmentProfileSelectionId, Mode=OneWay}" SelectionChanged="GameDisplayProfile_SelectionChanged" IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}" Tag="Использовать профиль по умолчанию">
+                                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/></DataTemplate></ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Text="Без профиля — для этого монитора будет использован профиль игры из блока «Профиль игры». Автосмена работает только при включённом шаге 2." Style="{StaticResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                             </StackPanel>
                           </Border>
-                          <Border Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
+                          <Border Grid.Row="1" Grid.Column="0" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
                             <StackPanel>
                               <TextBlock Text="RTSS / NVIDIA" Style="{StaticResource Eyebrow}" Margin="0,0,0,14"/>
                               <TextBlock Text="Режим RTSS" Style="{StaticResource FieldLabel}"/>
@@ -570,7 +587,7 @@
                               <TextBlock Text="Режим задаётся в профиле. Параметры NVIDIA показаны в сводке выше." Style="{StaticResource Muted}" FontSize="11" Margin="0,11,0,0"/>
                             </StackPanel>
                           </Border>
-                          <Border Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
+                          <Border Grid.Row="1" Grid.Column="1" Background="{DynamicResource RaisedBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,12,12">
                             <StackPanel>
                               <TextBlock Text="СОСТОЯНИЕ ИГРЫ" Style="{StaticResource Eyebrow}" Margin="0,0,0,14"/>
                               <Border Background="{DynamicResource NeutralSurfaceBrush}" CornerRadius="9" Padding="12">
@@ -581,7 +598,7 @@
                               </Border>
                             </StackPanel>
                           </Border>
-                        </UniformGrid>
+                        </Grid>
                       </StackPanel>
                     </ScrollViewer>
                     <Border x:Name="GameActionsFooter" Grid.Row="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" CornerRadius="0,0,14,14" Padding="16,12">

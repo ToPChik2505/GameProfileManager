@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using GameProfileManager.Core;
 using GameProfileManager.Presentation;
+using GameProfileManager.Application;
 
 namespace GameProfileManager;
 
@@ -30,7 +31,7 @@ public sealed partial class MainViewModel
                     Changed(nameof(SelectedProfileEffectiveRtssModeLabel));
                 }
                 if (changed)
-                    foreach (var game in Games.Where(g => g.ProfileId == profile.Id))
+                    foreach (var game in Games.Where(g => ActiveProfileIds(g).Contains(profile.Id)))
                     { game.Status = ApplyStatus.Pending; game.Detail = "Режим лимитера RTSS изменён; примените профиль"; }
                 RefreshDisplays();
                 ScheduleSave();
@@ -45,7 +46,7 @@ public sealed partial class MainViewModel
                 if (e.PropertyName != nameof(PerformanceProfile.Description))
                 {
                     if (profile == SelectedProfile) UpdateFpsFractions();
-                    foreach (var game in Games.Where(g => g.ProfileId == profile.Id)) { game.Status = ApplyStatus.Pending; game.Detail = "Профиль изменён"; }
+                    foreach (var game in Games.Where(g => ActiveProfileIds(g).Contains(profile.Id))) { game.Status = ApplyStatus.Pending; game.Detail = "Профиль изменён"; }
                     RefreshDisplays();
                 }
                 ScheduleSave();
@@ -62,12 +63,19 @@ public sealed partial class MainViewModel
         GameCards.Add(card);
         PropertyChangedEventHandler handler = (_, e) =>
         {
+        if (e.PropertyName == nameof(GameEntry.DisplayProfileTargetId))
+        {
+            SaveOnly(false);
+            return;
+        }
         if (e.PropertyName is nameof(GameEntry.Name) or nameof(GameEntry.ProfileId) or
-            nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
+            nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId) or nameof(GameEntry.AutoSwitchProfile) or
+            nameof(GameEntry.DisplayProfilePolicy))
             _latestDiagnosticsProbe = null;
 
         if (e.PropertyName == nameof(GameEntry.Name)) { UpdateSummary(); ScheduleSave(); }
-        if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId))
+        if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.ExePath) or nameof(GameEntry.DisplayId) or
+            nameof(GameEntry.AutoSwitchProfile) or nameof(GameEntry.DisplayProfilePolicy))
         {
             game.Status = ApplyStatus.Pending;
             game.Detail = game.ProfileId is null
@@ -76,13 +84,19 @@ public sealed partial class MainViewModel
                     : "Профиль не выбран: параметры не применяются"
                 : "Назначение изменено";
             RefreshDisplays();
-            if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId)) SaveOnly(false);
+            if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId) or
+                nameof(GameEntry.AutoSwitchProfile) or nameof(GameEntry.DisplayProfilePolicy)) SaveOnly(false);
             else ScheduleSave();
         }
         };
         _gameHandlers.Add(game, handler);
         game.PropertyChanged += handler;
     }
+    private IEnumerable<Guid> EffectiveProfileIds(GameEntry game) =>
+        game.DisplayProfileAssignments.Select(assignment => assignment.ProfileId)
+            .Append(game.ProfileId ?? Guid.Empty).Where(id => id != Guid.Empty).Distinct();
+    private IEnumerable<Guid> ActiveProfileIds(GameEntry game) =>
+        game.AutoSwitchProfile ? EffectiveProfileIds(game) : game.ProfileId is { } id ? [id] : [];
     private void Unhook(PerformanceProfile profile)
     {
         if (_profileHandlers.Remove(profile, out var handler)) profile.PropertyChanged -= handler;
@@ -100,7 +114,6 @@ public sealed partial class MainViewModel
     private void RefreshDisplays()
     {
         var displays = _displays.ToArray();
-        var profilesById = Profiles.ToDictionary(profile => profile.Id);
         foreach (var profile in Profiles)
         {
             var fps = DisplayFps.Resolve(_state, null, profile, displays);
@@ -114,12 +127,12 @@ public sealed partial class MainViewModel
         }
         foreach (var game in Games)
         {
-            PerformanceProfile? profile = game.ProfileId is { } id &&
-                profilesById.TryGetValue(id, out var found) ? found : null;
+            var resolution = ProfileResolver.Resolve(_state, game, displays);
+            PerformanceProfile? profile = resolution.IsResolved ? resolution.Profile : null;
             UpdateGameDisplay(game, nameof(GameEntry.ProfileDisplay), game.ProfileDisplay,
-                profile?.Name ?? "Без профиля", value => game.ProfileDisplay = value);
+                profile?.Name ?? (game.AutoSwitchProfile ? "Профиль не определён" : "Без профиля"), value => game.ProfileDisplay = value);
             UpdateGameDisplay(game, nameof(GameEntry.FpsDisplay), game.FpsDisplay,
-                profile is null ? "—" : DisplayFps.Resolve(_state, game, profile, displays).DisplayText,
+                profile is null ? "—" : ProfileResolver.ResolveConfiguration(_state, game, displays)?.Fps?.ToString() ?? "—",
                 value => game.FpsDisplay = value);
             UpdateGameDisplay(game, nameof(GameEntry.VrrDisplay), game.VrrDisplay,
                 profile is null ? "—" : ProfileLabels.Vrr(profile.Vrr), value => game.VrrDisplay = value);

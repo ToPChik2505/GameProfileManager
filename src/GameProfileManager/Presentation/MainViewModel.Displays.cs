@@ -15,6 +15,7 @@ public sealed partial class MainViewModel
             _displays.Clear();
             foreach (var display in found) _displays.Add(display);
             Volatile.Write(ref _displaySnapshot, found.ToArray());
+            CacheDisplayNames(found);
             _displayMonitor.Reset(found);
             UpdateDisplayOptions();
             DisplayStatus = found.Count == 0 ? "Windows не обнаружила активные экраны" :
@@ -40,15 +41,12 @@ public sealed partial class MainViewModel
             if (_busy || _disposed || !_displayMonitor.Observe(found)) return;
             var previous = _displays.ToArray();
             var changed = Games.Where(game =>
-            {
-                var profile = Profiles.FirstOrDefault(p => p.Id == game.ProfileId);
-                return profile?.FpsMode == FpsLimitMode.DisplayFraction &&
-                    DisplayFps.Resolve(_state, game, profile, previous).Fps !=
-                    DisplayFps.Resolve(_state, game, profile, found).Fps;
-            }).ToArray();
+                ProfileResolver.ResolveConfiguration(_state, game, previous) !=
+                ProfileResolver.ResolveConfiguration(_state, game, found)).ToArray();
             _displays.Clear();
             foreach (var display in found) _displays.Add(display);
             Volatile.Write(ref _displaySnapshot, found.ToArray());
+            CacheDisplayNames(found);
             UpdateDisplayOptions(); UpdateDisplaySummary(); UpdateFpsFractions(); RefreshDisplays();
             DisplayStatus = found.Count == 0 ? "Windows не обнаружила активные экраны" :
                 found.Any(d => d.DynamicRefresh) ? "Динамическая частота: автоматический лимит недоступен" :
@@ -87,8 +85,8 @@ public sealed partial class MainViewModel
                 SyncProgressPercent = 100d * (index + 1) / changed.Length;
             }
             Notice = changed.All(game => game.Status is ApplyStatus.Applied or ApplyStatus.RestartRequired)
-                ? "Частота экрана изменилась; новые лимиты FPS применены."
-                : "Частота экрана изменилась; проверьте статусы игр.";
+                ? "Дисплей изменился; обновлённые профили применены."
+                : "Дисплей изменился; проверьте статусы игр.";
         }
         catch (Exception ex)
         {
@@ -111,25 +109,47 @@ public sealed partial class MainViewModel
         IsUpdatingDisplayOptions = true;
         try
         {
-            DefaultDisplayOptions.Clear(); GameDisplayOptions.Clear();
+            DefaultDisplayOptions.Clear(); GameDisplayOptions.Clear(); ProfileAssignmentDisplayOptions.Clear();
             DefaultDisplayOptions.Add(new("", "Основной экран Windows"));
             GameDisplayOptions.Add(new("", "Экран по умолчанию"));
+            ProfileAssignmentDisplayOptions.Add(new("", "Сначала выберите монитор"));
             foreach (var display in _displays)
             {
                 string label = $"{display.Name} · {display.RefreshLabel}" + (display.IsPrimary ? " · основной" : "");
                 DefaultDisplayOptions.Add(new(display.Id, label));
                 GameDisplayOptions.Add(new(display.Id, label));
+                ProfileAssignmentDisplayOptions.Add(new(display.Id, label));
             }
             var available = _displays.Select(display => display.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(_state.DefaultDisplayId) && !available.Contains(_state.DefaultDisplayId))
-                DefaultDisplayOptions.Add(new(_state.DefaultDisplayId, "Выбранный экран отключён"));
+                DefaultDisplayOptions.Add(new(_state.DefaultDisplayId, $"{DisplayNameCache.Get(_state, _state.DefaultDisplayId)} — отключён"));
             foreach (string id in Games.Select(game => game.DisplayId).Where(id => !string.IsNullOrWhiteSpace(id) && !available.Contains(id))
                          .Distinct(StringComparer.OrdinalIgnoreCase))
-                GameDisplayOptions.Add(new(id, "Выбранный экран отключён"));
+                GameDisplayOptions.Add(new(id, $"{DisplayNameCache.Get(_state, id)} — отключён"));
+            foreach (string id in Games.Select(game => game.DisplayProfileTargetId)
+                         .Where(id => !string.IsNullOrWhiteSpace(id) && !available.Contains(id))
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
+                ProfileAssignmentDisplayOptions.Add(new(id, $"{DisplayNameCache.Get(_state, id)} — отключён"));
         }
         finally { IsUpdatingDisplayOptions = false; }
         SelectedDisplay = _displays.FirstOrDefault(display => display.Id == selected) ?? OverviewDisplay;
         Changed(nameof(DefaultDisplayId));
+    }
+
+    private void CacheDisplayNames(IReadOnlyList<DisplayInfo> displays)
+    {
+        bool changed = false;
+        foreach (var display in displays)
+        {
+            if (string.IsNullOrWhiteSpace(display.Id) || string.IsNullOrWhiteSpace(display.Name)) continue;
+            var existingKey = _state.DisplayNames.Keys.FirstOrDefault(key =>
+                key.Equals(display.Id, StringComparison.OrdinalIgnoreCase));
+            if (existingKey is not null && _state.DisplayNames[existingKey] == display.Name) continue;
+            if (existingKey is not null) _state.DisplayNames.Remove(existingKey);
+            _state.DisplayNames[display.Id] = display.Name;
+            changed = true;
+        }
+        if (changed) SaveOnly(false);
     }
 
     private void UpdateDisplaySummary()
