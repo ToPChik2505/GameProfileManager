@@ -100,6 +100,8 @@ internal interface IControllerSurface
 internal sealed class SdlControllerInput : IDisposable
 {
     private const uint InitGamepad = 0x00002000;
+    // SDL_GamepadType PS3/PS4/PS5 и SDL_GamepadButtonLabel CROSS из SDL3/SDL_gamepad.h.
+    private const int Ps3Type = 4, Ps4Type = 5, Ps5Type = 6, CrossLabel = 5;
     private const int ForegroundIntervalMs = 40;
     private const int BackgroundIntervalMs = 100;
     private static readonly ControllerButton[] PolledButtons = Enum.GetValues<ControllerButton>();
@@ -168,7 +170,7 @@ internal sealed class SdlControllerInput : IDisposable
                 var snapshot = Read(pad.Handle);
                 foreach (var action in pad.Mapper.Update(snapshot, now))
                 {
-                    SetStatus(pad.Name, true, pad.Type is 5 or 6 or 7);
+                    SetStatus(pad.Name, true, pad.PlayStation);
                     // Модальный редактор может открыться из обработчика. Отложенный вызов
                     // не допускает повторного входа в текущий цикл опроса SDL.
                     _dispatcher.TryEnqueue(DispatcherQueuePriority.High, () =>
@@ -206,8 +208,9 @@ internal sealed class SdlControllerInput : IDisposable
                 if (handle == IntPtr.Zero) continue;
                 string name = Marshal.PtrToStringUTF8(SDL_GetGamepadName(handle)) ?? "Геймпад";
                 int type = SDL_GetGamepadType(handle);
-                _pads.Add(id, new OpenPad(handle, name, type));
-                SetStatus(name, true, type is 5 or 6 or 7);
+                bool playStation = IsPlayStation(handle, type);
+                _pads.Add(id, new OpenPad(handle, name, playStation));
+                SetStatus(name, true, playStation);
             }
         }
         finally { SDL_free(ids); }
@@ -228,6 +231,10 @@ internal sealed class SdlControllerInput : IDisposable
             SDL_GetGamepadAxis(pad, 3), SDL_GetGamepadAxis(pad, 4), SDL_GetGamepadAxis(pad, 5));
     }
 
+    private static bool IsPlayStation(IntPtr pad, int type) =>
+        type is Ps3Type or Ps4Type or Ps5Type ||
+        SDL_GetGamepadButtonLabel(pad, (int)ControllerButton.South) == CrossLabel;
+
     private void SetStatus(string status, bool connected, bool playStation = false)
     {
         if (_status == status && _playStation == playStation) return;
@@ -247,7 +254,7 @@ internal sealed class SdlControllerInput : IDisposable
         _initialized = false;
     }
 
-    private sealed record OpenPad(IntPtr Handle, string Name, int Type)
+    private sealed record OpenPad(IntPtr Handle, string Name, bool PlayStation)
     {
         public ControllerActionMapper Mapper { get; } = new();
     }
@@ -267,6 +274,7 @@ internal sealed class SdlControllerInput : IDisposable
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern short SDL_GetGamepadAxis(IntPtr gamepad, int axis);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr SDL_GetGamepadName(IntPtr gamepad);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern int SDL_GetGamepadType(IntPtr gamepad);
+    [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern int SDL_GetGamepadButtonLabel(IntPtr gamepad, int button);
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr SDL_GetError();
     [DllImport("SDL3", CallingConvention = CallingConvention.Cdecl)] private static extern void SDL_free(IntPtr pointer);
 }

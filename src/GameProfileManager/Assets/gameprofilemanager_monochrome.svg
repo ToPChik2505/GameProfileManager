@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+<title>GameProfileManager — Monochrome application icon</title>
+<desc>Rounded Windows app tile featuring layered graphics profiles, a monitor, a game controller and adjustment sliders.</desc>
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="0.95" y2="1"><stop offset="0" stop-color="#74777c"/><stop offset=".38" stop-color="#666a70"/><stop offset="1" stop-color="#1b1e24"/></linearGradient>
+<linearGradient id="tileHighlight" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#666a70" stop-opacity=".46"/><stop offset=".4" stop-color="#32363d" stop-opacity="0"/><stop offset="1" stop-color="#161920" stop-opacity=".4"/></linearGradient>
+<linearGradient id="rear" x1="0" y1="0" x2=".95" y2="1"><stop stop-color="#777b82"/><stop offset="1" stop-color="#33373d"/></linearGradient>
+<linearGradient id="middle" x1="0" y1="0" x2=".95" y2="1"><stop stop-color="#a4a6ac"/><stop offset="1" stop-color="#494b53"/></linearGradient>
+<linearGradient id="screen" x1="0" y1="0" x2=".98" y2="1"><stop stop-color="#32353b"/><stop offset="1" stop-color="#101217"/></linearGradient>
+<linearGradient id="pad" x1="0" y1="0" x2=".9" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#b9bec9"/></linearGradient>
+<linearGradient id="stand" x1="0" y1="0" x2=".5" y2="1"><stop stop-color="#c3c5c9"/><stop offset="1" stop-color="#767a81"/></linearGradient>
+<radialGradient id="glow"><stop stop-color="#74777c" stop-opacity=".4"/><stop offset="1" stop-color="#1b1e24" stop-opacity="0"/></radialGradient>
+<linearGradient id="knob" x1=".15" y1="0" x2=".95" y2="1"><stop stop-color="#f9f9f9"/><stop offset="1" stop-color="#9ea1a8"/></linearGradient>
+</defs>
+<!-- Tile and subtle edge lighting -->
+<rect x="80" y="84" width="868" height="870" rx="220" fill="#000000" opacity=".12"/>
+<rect x="70" y="67" width="880" height="882" rx="218" fill="url(#tile)" stroke="#b3b5b9" stroke-opacity=".4" stroke-width="3"/>
+<rect x="74" y="71" width="872" height="874" rx="215" fill="url(#tileHighlight)"/>
+<ellipse cx="261" cy="231" rx="281" ry="294" fill="url(#glow)" opacity=".65"/>
+<!-- Stacked configuration profiles -->
+<g transform="rotate(6 623 492)">
+ <rect x="400" y="216" width="447" height="553" rx="76" fill="#091524" opacity=".15" transform="translate(9 14)"/>
+ <rect x="401" y="211" width="444" height="556" rx="74" fill="url(#rear)" stroke="#b3b5b9" stroke-opacity=".27" stroke-width="3"/>
+</g>
+<g transform="rotate(3 523 530)">
+ <rect x="307" y="283" width="444" height="530" rx="70" fill="url(#middle)" stroke="#b3b5b9" stroke-opacity=".32" stroke-width="3"/>
+</g>
+<rect x="276" y="343" width="473" height="488" rx="62" fill="url(#rear)" opacity=".75"/>
+<!-- Blue controls to right of monitor -->
+<g fill="none" stroke="#bdbfc3" stroke-width="16" stroke-linecap="round">
+ <path d="M 672 494 H 855"/><path d="M 672 610 H 855"/><path d="M 672 727 H 855"/>
+</g>
+<g fill="url(#knob)" stroke="#f9f9f9" stroke-opacity=".62" stroke-width="3">
+ <circle cx="732" cy="494" r="31"/><circle cx="802" cy="610" r="31"/><circle cx="750" cy="727" r="31"/>
+</g>
+<!-- Monitor stand shadow -->
+<path d="M 380 745 H 481 L 468 807 Q 473 825 496 833 Q 510 839 510 853 Q 510 864 490 865 L 330 865 Q 311 863 311 853 Q 311 838 332 831 Q 357 821 365 807 Z" fill="#03132e" opacity=".3" transform="translate(4 12)"/>
+<path d="M 373 746 H 480 L 466 811 Q 471 827 498 835 Q 510 841 510 853 Q 510 866 488 866 H 330 Q 308 866 308 853 Q 308 838 332 833 Q 359 822 367 807 Z" fill="url(#stand)"/>
+<!-- Monitor face and slim edge -->
+<rect x="145" y="355" width="527" height="429" rx="67" fill="#020917" opacity=".35" transform="translate(9 12)"/>
+<rect x="146" y="349" width="520" height="428" rx="64" fill="url(#screen)" stroke="#e4e5e7" stroke-width="12"/>
+<rect x="160" y="362" width="491" height="400" rx="51" fill="none" stroke="#b3b5b9" stroke-opacity=".23" stroke-width="2"/>
+<!-- Controller shadow -->
+<path d="M 292 522 C 316 497 347 500 372 505 L 466 505 C 514 502 547 511 565 540 C 584 567 608 646 600 674 C 588 708 554 702 517 667 C 491 642 480 638 453 638 H 396 C 375 638 358 651 332 681 C 297 716 260 699 253 675 C 244 650 266 553 292 522 Z" fill="#011126" opacity=".24" transform="translate(2 11)"/>
+<path d="M 292 512 C 316 488 345 493 372 497 L 467 497 C 513 493 551 504 569 534 C 583 559 613 643 603 672 C 594 709 555 703 514 665 C 495 647 478 636 452 636 L 397 636 C 375 636 356 648 334 675 C 297 715 260 702 252 676 C 244 648 268 542 292 512 Z" fill="url(#pad)" stroke="#dedfe2" stroke-width="4"/>
+<!-- D-pad -->
+<path d="M 338 537 H 360 V 567 H 390 V 590 H 360 V 621 H 338 V 590 H 306 V 567 H 338 Z" fill="#292c32"/>
+<!-- A B / right buttons -->
+<circle cx="504" cy="576" r="19" fill="#292c32"/><circle cx="540" cy="567" r="13" fill="#292c32"/>
+</svg>

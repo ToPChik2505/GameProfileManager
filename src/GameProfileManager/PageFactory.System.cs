@@ -118,13 +118,34 @@ internal static partial class PageFactory
 
     private static PageComposition ControllerSettings(RouteRequest request)
     {
-        return Shell("Контроллер SDL3", "Подключение и навигация геймпадом",
-            Card(Column(Strong("Состояние"), Secondary(request.Owner.ControllerStatus),
+        var status = Secondary("");
+        var buttons = Secondary("");
+        var sections = Secondary("");
+        var tray = Secondary("");
+        var page = Shell("Контроллер SDL3", "Подключение и навигация геймпадом",
+            Card(Column(Strong("Состояние"), status,
                 Secondary("Подключение и отключение контроллера отслеживаются во время работы приложения."))),
             Card(Column(Strong("Управление"), Secondary("Крестовина / левый стик — перемещение фокуса"),
-                Secondary("A / ✕ — выбрать; B / ○ — назад"),
-                Secondary("LB / RB — основные разделы; правый стик и LT / RT — прокрутка"),
-                Secondary("Start + View / Options + Create — вернуть окно из трея"))));
+                buttons, Secondary("В раскрытом списке крестовина меняет выбор; назад закрывает список."),
+                sections, tray)));
+        void Refresh()
+        {
+            status.Text = request.Owner.ControllerStatus;
+            buttons.Text = request.Owner.IsPlayStationController
+                ? "✕ — выбрать; ○ — назад или закрыть список; □ — ввод / удалить; △ — свернуть"
+                : "A — выбрать; B — назад или закрыть список; X — ввод / удалить; Y — свернуть";
+            sections.Text = request.Owner.IsPlayStationController
+                ? "L1 / R1 — основные разделы; правый стик и L2 / R2 — прокрутка"
+                : "LB / RB — основные разделы; правый стик и LT / RT — прокрутка";
+            tray.Text = request.Owner.IsPlayStationController
+                ? "Options + Create — вернуть окно из трея"
+                : "Start + View — вернуть окно из трея";
+        }
+        request.Owner.ControllerStatusChanged += Refresh;
+        if (page.Content is FrameworkElement root)
+            root.Unloaded += (_, _) => request.Owner.ControllerStatusChanged -= Refresh;
+        Refresh();
+        return page;
     }
 
     private static PageComposition BackupSettings(RouteRequest request)

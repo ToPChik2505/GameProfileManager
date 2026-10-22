@@ -9,7 +9,7 @@
     </Grid.RowDefinitions>
     <TitleBar x:Name="AppTitleBar" Title="GameProfileManager">
       <TitleBar.IconSource>
-        <BitmapIconSource UriSource="ms-appx:///Assets/app-icon.png" ShowAsMonochrome="False" />
+        <BitmapIconSource UriSource="ms-appx:///Assets/gameprofilemanager_color.png" ShowAsMonochrome="False" />
       </TitleBar.IconSource>
     </TitleBar>
     <NavigationView x:Name="NavView" Grid.Row="1" PaneDisplayMode="Auto"

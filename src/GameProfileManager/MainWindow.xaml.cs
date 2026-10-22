@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     private bool _closeGuardPending;
     private bool _controllerMode;
     private bool _controllerConnected;
+    private bool _playStationController;
     private ControllerFilePicker? _activePicker;
     internal ControllerKeyboard? ActiveKeyboard { get; set; }
     private string _route = "overview";
@@ -40,6 +41,8 @@ public sealed partial class MainWindow : Window
     public MainViewModel ViewModel => _viewModel;
     public string CurrentRoute => _route;
     public string ControllerStatus => _controllerStatus;
+    public bool IsPlayStationController => _playStationController;
+    internal event Action? ControllerStatusChanged;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -48,7 +51,7 @@ public sealed partial class MainWindow : Window
         ThemeManager.Apply(viewModel.Theme);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        AppWindow.SetIcon("Assets/app.ico");
+        AppWindow.SetIcon("Assets/gameprofilemanager_color.ico");
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
         _viewModel.PropertyChanged += OnViewModelChanged;
@@ -56,24 +59,31 @@ public sealed partial class MainWindow : Window
         UpdateActivityBanner();
 
         _trayIcon = new ShellTrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico"),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "gameprofilemanager_color.ico"),
             RestoreWindow,
             () => _viewModel.VerifyCommand.Execute(null),
             () => _viewModel.ApplyCommand.Execute(null), ExitFromTray);
 
         _controllerInput = new SdlControllerInput();
         _controllerInput.ActionReceived += HandleControllerAction;
-        _controllerInput.StatusChanged += (status, connected, _) =>
-        {
-            _controllerStatus = connected ? status : string.IsNullOrWhiteSpace(status) ? "Контроллер не подключён" : status;
-            _controllerConnected = connected;
-            ControllerLegend.Visibility = connected && _controllerMode ? Visibility.Visible : Visibility.Collapsed;
-        };
+        _controllerInput.StatusChanged += UpdateControllerStatus;
         _controllerInput.Start();
         _viewModel.PickLocalFileAsync = PickLocalFileAsync;
         RootLayout.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), true);
         RootLayout.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         Navigate("overview");
+    }
+
+    private void UpdateControllerStatus(string status, bool connected, bool playStation)
+    {
+        _controllerStatus = connected ? status : string.IsNullOrWhiteSpace(status) ? "Контроллер не подключён" : status;
+        _controllerConnected = connected;
+        _playStationController = connected && playStation;
+        ControllerLegend.Text = _playStationController
+            ? "✕ — выбрать     ○ — назад / закрыть список     L1/R1 — разделы     Крестовина — перемещение"
+            : "A — выбрать     B — назад / закрыть список     LB/RB — разделы     D-pad — перемещение";
+        ControllerLegend.Visibility = connected && _controllerMode ? Visibility.Visible : Visibility.Collapsed;
+        ControllerStatusChanged?.Invoke();
     }
 
     public void MaximizeForApplicationStartup()
@@ -191,6 +201,7 @@ public sealed partial class MainWindow : Window
 
     public async void GoBack()
     {
+        if (TryCloseOpenComboBox()) return;
         if (!IsInternalRoute(_route)) return;
         if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync()) return;
         if (ContentFrame.CanGoBack) ContentFrame.GoBack();
@@ -207,6 +218,16 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, parent,
                 parent == "game" ? _viewModel.SelectedGame?.Id : null));
         }
+    }
+
+    private bool TryCloseOpenComboBox()
+    {
+        var combo = Descendants(ContentFrame).OfType<ComboBox>()
+            .FirstOrDefault(item => item.IsDropDownOpen);
+        if (combo is null) return false;
+        combo.IsDropDownOpen = false;
+        combo.Focus(FocusState.Programmatic);
+        return true;
     }
 
     private static bool IsInternalRoute(string route) => route is not
@@ -232,7 +253,9 @@ public sealed partial class MainWindow : Window
 
     private bool HandleBackShortcut(VirtualKey key, bool altDown, bool textFocused)
     {
-        if (!IsInternalRoute(_route) || !(key is VirtualKey.Escape or VirtualKey.GoBack
+        bool canGoBack = IsInternalRoute(_route) ||
+            Descendants(ContentFrame).OfType<ComboBox>().Any(item => item.IsDropDownOpen);
+        if (!canGoBack || !(key is VirtualKey.Escape or VirtualKey.GoBack
             || key == VirtualKey.Left && altDown || key == VirtualKey.Back && !textFocused)) return false;
         GoBack();
         return true;
@@ -247,7 +270,8 @@ public sealed partial class MainWindow : Window
 
     private bool HandleMouseBack(bool xButtonPressed)
     {
-        if (!xButtonPressed || !IsInternalRoute(_route)) return false;
+        if (!xButtonPressed || !IsInternalRoute(_route) &&
+            !Descendants(ContentFrame).OfType<ComboBox>().Any(item => item.IsDropDownOpen)) return false;
         GoBack();
         return true;
     }
@@ -296,6 +320,20 @@ public sealed partial class MainWindow : Window
 
     private void MoveControllerFocus(FocusNavigationDirection direction)
     {
+        var openCombo = Descendants(ContentFrame).OfType<ComboBox>()
+            .FirstOrDefault(item => item.IsDropDownOpen);
+        if (openCombo is not null)
+        {
+            int change = direction switch
+            {
+                FocusNavigationDirection.Up or FocusNavigationDirection.Left => -1,
+                FocusNavigationDirection.Down or FocusNavigationDirection.Right => 1,
+                _ => 0
+            };
+            if (change != 0 && openCombo.Items.Count > 0)
+                openCombo.SelectedIndex = Math.Clamp(openCombo.SelectedIndex + change, 0, openCombo.Items.Count - 1);
+            return;
+        }
         if (!RootLayout.IsLoaded) return;
         if (FocusManager.GetFocusedElement(RootLayout.XamlRoot) is null)
         {
@@ -314,6 +352,14 @@ public sealed partial class MainWindow : Window
 
     private void ActivateFocusedControl()
     {
+        var openCombo = Descendants(ContentFrame).OfType<ComboBox>()
+            .FirstOrDefault(item => item.IsDropDownOpen);
+        if (openCombo is not null)
+        {
+            openCombo.IsDropDownOpen = false;
+            openCombo.Focus(FocusState.Programmatic);
+            return;
+        }
         var focused = FocusManager.GetFocusedElement(RootLayout.XamlRoot);
         switch (focused)
         {
@@ -465,6 +511,17 @@ public sealed partial class MainWindow : Window
         if (!gameColumnsLabeled) throw new InvalidOperationException("Game FPS column lacks a unit.");
         Navigate("settings");
         await WaitForRouteAsync("settings");
+        UpdateControllerStatus("DualSense", true, true);
+        bool dualSenseLayoutWorks = IsPlayStationController && ControllerLegend.Text.Contains("✕ — выбрать")
+            && ControllerLegend.Text.Contains("○ — назад");
+        var settingsCombo = Descendants(ContentFrame).OfType<ComboBox>().First();
+        settingsCombo.Focus(FocusState.Programmatic);
+        settingsCombo.IsDropDownOpen = true;
+        DispatchControllerAction(ControllerAction.Back);
+        bool controllerDropdownCloses = !settingsCombo.IsDropDownOpen && CurrentRoute == "settings";
+        if (!dualSenseLayoutWorks || !controllerDropdownCloses)
+            throw new InvalidOperationException("DualSense labels or controller dropdown return failed.");
+        UpdateControllerStatus("", false, false);
         bool rootBackDisabled = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible
             && !NavView.IsBackEnabled && !HandleBackShortcut(VirtualKey.GoBack, false, false)
             && !HandleMouseBack(true);
@@ -588,7 +645,7 @@ public sealed partial class MainWindow : Window
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
             JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
                 shellChromeReady, gameColumnsLabeled, loaderShownAndHidden, importReturnWorks, controllerReturnWorks,
-                controllerFocusAndAcceptWorks,
+                controllerFocusAndAcceptWorks, dualSenseLayoutWorks, controllerDropdownCloses,
                 monitorAppearsImmediately, exeSelectionWorks, restoreClearsProfile,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,

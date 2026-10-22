@@ -23,7 +23,9 @@ internal sealed class ControllerKeyboard
         _text = new TextBox { Text = value, MinHeight = 40 };
         var content = new StackPanel { Spacing = 10, MinWidth = 300 };
         content.Children.Add(_text);
-        content.Children.Add(new TextBlock { Text = "Крестовина — выбор · A — нажать · X — удалить · Y — RU/EN · Start — готово" });
+        content.Children.Add(new TextBlock { Text = owner.IsPlayStationController
+            ? "Крестовина — выбор · ✕ — нажать · □ — удалить · △ — RU/EN · Options — готово · ○ — отмена"
+            : "D-pad — выбор · A — нажать · X — удалить · Y — RU/EN · Start — готово · B — отмена" });
         content.Children.Add(_keys);
         _dialog.Content = new ScrollViewer { Content = content, MaxHeight = 510 };
         BuildKeys();
