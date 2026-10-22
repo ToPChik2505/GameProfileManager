@@ -7,10 +7,15 @@
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
-    <TitleBar x:Name="AppTitleBar" Title="GameProfileManager">
+    <TitleBar x:Name="AppTitleBar">
       <TitleBar.LeftHeader>
-        <Image Source="ms-appx:///Assets/gameprofilemanager_monochrome.png"
-               Width="32" Height="32" Stretch="Uniform" IsHitTestVisible="False" />
+        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+          <Image Source="ms-appx:///Assets/gameprofilemanager_monochrome.png"
+                 Width="32" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
+          <TextBlock Text="GameProfileManager" Style="{ThemeResource BodyTextBlockStyle}"
+                     VerticalAlignment="Center" />
+        </StackPanel>
       </TitleBar.LeftHeader>
     </TitleBar>
     <NavigationView x:Name="NavView" Grid.Row="1" PaneDisplayMode="Auto"
