@@ -24,12 +24,15 @@ internal static partial class PageFactory
         bool saved = false;
         bool fpsValid = true;
 
-        var name = new TextBox { Text = draft.Name, PlaceholderText = "Название профиля", MaxWidth = 480 };
+        var name = new TextBox { Text = draft.Name, PlaceholderText = "Название профиля",
+            HorizontalAlignment = HorizontalAlignment.Stretch };
         name.TextChanged += (_, _) => { draft.Name = name.Text; dirty = true; };
-        var description = new TextBox { Text = draft.Description, PlaceholderText = "Описание", MaxWidth = 480 };
+        var description = new TextBox { Text = draft.Description, PlaceholderText = "Описание",
+            HorizontalAlignment = HorizontalAlignment.Stretch };
         description.TextChanged += (_, _) => { draft.Description = description.Text; dirty = true; };
         var fps = new NumberBox { Value = draft.FpsLimit, Minimum = 1, Maximum = 1000,
-            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact, MaxWidth = 240 };
+            SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+            HorizontalAlignment = HorizontalAlignment.Stretch };
         fps.ValueChanged += (_, _) =>
         {
             fpsValid = !double.IsNaN(fps.Value) && fps.Value is >= 1 and <= 1000;
@@ -68,10 +71,12 @@ internal static partial class PageFactory
             editing ? "Изменения сохранятся после нажатия кнопки «Сохранить профиль»." :
                 "Создайте отдельный профиль для игровых EXE.",
             ResponsivePair(
-                Card(Column(Field("Название", name), Field("Описание", description),
-                    Field("Режим FPS", fpsMode), Field("Лимит FPS", fps),
-                    Field("Доля частоты экрана", fraction))),
-                Card(Column(Field("Режим монитора NVIDIA", vrr), Field("V-Sync", vsync),
+                Card(Column(Strong("Основные данные"),
+                    Field("Название", name), Field("Описание", description),
+                    Field("Режим FPS", fpsMode), Field("Лимит FPS", fps))),
+                Card(Column(Strong("Дисплей и синхронизация"),
+                    Field("Доля частоты экрана", fraction),
+                    Field("Режим монитора NVIDIA", vrr), Field("V-Sync", vsync),
                     Field("Режим лимитера RTSS", limiter)))),
             Message("Отдельное применение", "Сохранение профиля не записывает настройки RTSS/NVIDIA. Примените профиль к назначенной игре."),
             Buttons(ActionButton("Отмена", () => request.Owner.Navigate("profiles")),

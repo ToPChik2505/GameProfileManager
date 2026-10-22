@@ -6,22 +6,74 @@
     <ResourceDictionary.MergedDictionaries>
       <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
     </ResourceDictionary.MergedDictionaries>
+    <Style x:Key="MetricValueTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
+      <Setter Property="FontSize" Value="28" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style x:Key="AccentMetricValueTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+    </Style>
+    <Style x:Key="SuccessMetricValueTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{ThemeResource SystemFillColorSuccessBrush}" />
+    </Style>
+    <Style x:Key="CautionMetricValueTextStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
+      <Setter Property="FontSize" Value="26" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCautionBrush}" />
+    </Style>
     <DataTemplate x:Key="GameRowTemplate">
-      <Grid Padding="10" ColumnSpacing="16">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <StackPanel Spacing="3">
-          <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-          <TextBlock Text="{Binding ExeDisplay}" Style="{ThemeResource CaptionTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+              CornerRadius="8" Margin="0,0,0,8">
+      <Grid Padding="12,10" ColumnSpacing="16" MinHeight="68">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="48"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="180"/>
+          <ColumnDefinition Width="100"/>
+          <ColumnDefinition Width="132"/>
+        </Grid.ColumnDefinitions>
+        <Grid Width="48" Height="48">
+          <Border Background="{ThemeResource ControlFillColorDefaultBrush}" CornerRadius="8">
+            <FontIcon Glyph="&#xE7F1;" FontSize="21" />
+          </Border>
+          <Image Source="{Binding Icon}" Width="48" Height="48" Stretch="UniformToFill" />
+        </Grid>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding ExeName}" Style="{ThemeResource CaptionTextBlockStyle}"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
         </StackPanel>
-        <TextBlock Grid.Column="1" Text="{Binding StatusLabel}" VerticalAlignment="Center"
-                   Style="{ThemeResource CaptionTextBlockStyle}" />
+        <TextBlock Grid.Column="2" Text="{Binding ProfileDisplay}" VerticalAlignment="Center"
+                   Style="{ThemeResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="3" Text="{Binding FpsDisplay}" VerticalAlignment="Center"
+                   Style="{ThemeResource BodyTextBlockStyle}" />
+        <Border Grid.Column="4" Background="{ThemeResource ControlFillColorDefaultBrush}"
+                CornerRadius="6" Padding="8,5" VerticalAlignment="Center">
+          <TextBlock Text="{Binding StatusLabel}" HorizontalAlignment="Center"
+                     Style="{ThemeResource CaptionTextBlockStyle}" />
+        </Border>
       </Grid>
+      </Border>
     </DataTemplate>
     <DataTemplate x:Key="ProfileRowTemplate">
-      <StackPanel Padding="10" Spacing="3">
-        <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyStrongTextBlockStyle}" />
-        <TextBlock Text="{Binding FpsPreview}" Style="{ThemeResource CaptionTextBlockStyle}" />
-      </StackPanel>
+      <Grid Padding="12,10" ColumnSpacing="12" MinHeight="62">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/></Grid.ColumnDefinitions>
+        <Border Width="40" Height="40" Background="{ThemeResource ControlFillColorDefaultBrush}" CornerRadius="8">
+          <FontIcon Glyph="&#xE8D7;" FontSize="19" />
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyStrongTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Text="{Binding Description}" Style="{ThemeResource CaptionTextBlockStyle}"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <TextBlock Grid.Column="2" Text="{Binding FpsPreview}" VerticalAlignment="Center"
+                   Style="{ThemeResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" />
+      </Grid>
     </DataTemplate>
     </ResourceDictionary>
   </Application.Resources>

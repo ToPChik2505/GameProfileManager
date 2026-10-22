@@ -1,6 +1,7 @@
 using GameProfileManager.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 
 namespace GameProfileManager;
@@ -35,7 +36,8 @@ internal static partial class PageFactory
 
     private static PageComposition Shell(string title, string subtitle, params UIElement[] items)
     {
-        var column = new StackPanel { Spacing = 16, Padding = new Thickness(24, 20, 24, 32), MaxWidth = 1440 };
+        var column = new StackPanel { Spacing = 20, Padding = new Thickness(24, 20, 24, 32),
+            HorizontalAlignment = HorizontalAlignment.Stretch };
         column.SizeChanged += (_, args) =>
         {
             double width = args.NewSize.Width;
@@ -75,7 +77,7 @@ internal static partial class PageFactory
     {
         Background = Brush("CardBackgroundFillColorDefaultBrush"),
         BorderBrush = Brush("CardStrokeColorDefaultBrush"), BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(8), Padding = new Thickness(16), Child = content
+        CornerRadius = new CornerRadius(10), Padding = new Thickness(20), Child = content
     };
 
     private static Button ActionButton(string label, Action action, bool accent = false, bool enabled = true)
@@ -93,11 +95,12 @@ internal static partial class PageFactory
         return row;
     }
 
-    private static UIElement ResponsivePair(FrameworkElement first, FrameworkElement second)
+    private static UIElement ResponsivePair(FrameworkElement first, FrameworkElement second,
+        double firstWeight = 1, double secondWeight = 1)
     {
         var grid = new Grid { Name = "ResponsivePair", ColumnSpacing = 16, RowSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(firstWeight, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(secondWeight, GridUnitType.Star) });
         grid.RowDefinitions.Add(new RowDefinition());
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
         grid.Children.Add(first);
@@ -106,7 +109,7 @@ internal static partial class PageFactory
         void Arrange(double width)
         {
             bool wide = width >= 930;
-            grid.ColumnDefinitions[1].Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            grid.ColumnDefinitions[1].Width = wide ? new GridLength(secondWeight, GridUnitType.Star) : new GridLength(0);
             grid.RowDefinitions[1].Height = wide ? new GridLength(0) : GridLength.Auto;
             Grid.SetColumn(second, wide ? 1 : 0);
             Grid.SetRow(second, wide ? 0 : 1);
@@ -116,9 +119,30 @@ internal static partial class PageFactory
         return grid;
     }
 
+    private static UIElement ResponsiveCards(params FrameworkElement[] cards)
+    {
+        var grid = new Grid { ColumnSpacing = 16, RowSpacing = 16 };
+        for (int i = 0; i < 3; i++) grid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (int i = 0; i < 3; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        foreach (var card in cards) grid.Children.Add(card);
+        void Arrange(double width)
+        {
+            int columns = width >= 1000 ? 3 : 2;
+            grid.ColumnDefinitions[2].Width = columns == 3 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            for (int i = 0; i < cards.Length; i++)
+            {
+                Grid.SetColumn(cards[i], i % columns);
+                Grid.SetRow(cards[i], i / columns);
+            }
+        }
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
+        return grid;
+    }
+
     private static ComboBox Choice<T>(IEnumerable<ModeOption<T>> options, T selected, Action<T> changed)
     {
-        var combo = new ComboBox { MinWidth = 220, MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Left };
+        var combo = new ComboBox { MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var option in options)
             combo.Items.Add(new ComboBoxItem { Content = option.Label, Tag = option.Value });
         combo.SelectedItem = combo.Items.OfType<ComboBoxItem>().FirstOrDefault(item =>
@@ -135,6 +159,17 @@ internal static partial class PageFactory
         var column = Column(Strong(label), editor);
         if (help is not null) column.Children.Add(Secondary(help));
         return column;
+    }
+
+    private static UIElement DetailRow(string label, TextBlock value)
+    {
+        var grid = new Grid { ColumnSpacing = 16, MinHeight = 38 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.Children.Add(Secondary(label));
+        Grid.SetColumn(value, 1);
+        grid.Children.Add(value);
+        return grid;
     }
 
     private static ToggleSwitch Toggle(string label, bool value, Action<bool> changed)
@@ -160,8 +195,41 @@ internal static partial class PageFactory
             HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Disabled };
     }
 
-    private static UIElement GameHeader(RouteRequest request, GameEntry game) => Column(
-        Card(Column(Strong(game.Name), Secondary(game.ExePath))), GameTabs(request, game));
+    private static FrameworkElement GameIcon(GameProfileManager.Presentation.GameEntryViewModel? card, double size)
+    {
+        var frame = new Grid { Width = size, Height = size };
+        frame.Children.Add(new Border
+        {
+            Background = Brush("ControlFillColorDefaultBrush"), CornerRadius = new CornerRadius(8),
+            Child = new FontIcon { Glyph = "\uE7F1", FontSize = size * 0.43,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        });
+        if (card is not null)
+        {
+            var image = new Image { Width = size, Height = size, Stretch = Stretch.UniformToFill };
+            image.SetBinding(Image.SourceProperty, new Binding { Source = card, Path = new PropertyPath("Icon") });
+            frame.Children.Add(image);
+        }
+        return frame;
+    }
+
+    private static UIElement GameHeader(RouteRequest request, GameEntry game)
+    {
+        var card = Vm(request).GameCards.FirstOrDefault(item => item.Id == game.Id);
+        var row = new Grid { ColumnSpacing = 16 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(GameIcon(card, 56));
+        var identity = Column(Strong(game.Name), Secondary(game.ExeDisplay));
+        Grid.SetColumn(identity, 1);
+        row.Children.Add(identity);
+        var state = Column(Strong(game.StatusLabel), Secondary(game.ProfileDisplay));
+        state.HorizontalAlignment = HorizontalAlignment.Right;
+        Grid.SetColumn(state, 2);
+        row.Children.Add(state);
+        return Column(Card(row), GameTabs(request, game));
+    }
 
     private static async Task<bool> Confirm(MainWindow owner, string title, string message, string action)
     {

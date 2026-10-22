@@ -27,6 +27,8 @@ public sealed class GameEntryViewModel : Observable, IDisposable
     public string Name { get => Model.Name; set => Model.Name = value; }
     public string ExePath { get => Model.ExePath; set => Model.ExePath = value; }
     public string ExeDisplay => Model.ExeDisplay;
+    public string ExeName => string.IsNullOrWhiteSpace(Model.ExePath)
+        ? "EXE не выбран" : Path.GetFileName(Model.ExePath);
     public Guid? ProfileId { get => Model.ProfileId; set => Model.ProfileId = value; }
     public Guid ProfileSelectionId { get => Model.ProfileSelectionId; set => Model.ProfileSelectionId = value; }
     public string DisplayId { get => Model.DisplayId; set => Model.DisplayId = value; }
@@ -137,7 +139,7 @@ public sealed class GameEntryViewModel : Observable, IDisposable
         }
         if (string.IsNullOrEmpty(e.PropertyName))
         {
-            Changed(nameof(Name)); Changed(nameof(ExeDisplay)); Changed(nameof(ProfileSelectionId));
+            Changed(nameof(Name)); Changed(nameof(ExeDisplay)); Changed(nameof(ExeName)); Changed(nameof(ProfileSelectionId));
             Changed(nameof(ProfileModeDescription)); Changed(nameof(DisplayPolicyDescription)); Changed(nameof(FpsScreenDescription));
             Changed(nameof(StatusLabel)); Changed(nameof(Detail)); Changed(nameof(ProfileDisplay));
             Changed(nameof(FpsDisplay)); Changed(nameof(VrrDisplay)); Changed(nameof(VSyncDisplay));
@@ -175,7 +177,8 @@ public sealed class GameEntryViewModel : Observable, IDisposable
             nameof(GameEntry.RtssLimiterDisplay) => nameof(RtssLimiterDisplay),
             _ => e.PropertyName
         });
-        if (e.PropertyName == nameof(GameEntry.ExePath)) Changed(nameof(ExeDisplay));
+        if (e.PropertyName == nameof(GameEntry.ExePath))
+        { Changed(nameof(ExeDisplay)); Changed(nameof(ExeName)); }
     }
 
     public void Dispose()

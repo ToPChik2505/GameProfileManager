@@ -67,6 +67,8 @@ FPS можно задать числом или долей частоты экр
 
 WinUI 3-приложение находится в `src/GameProfileManager/`, независимые модели и логика — в `src/GameProfileManager.Engine/`, проверки — в `tests/`, проект установщика — в `installer/`. Решение: `GameProfileManager.slnx`. Сборка требует Windows 11 и .NET SDK 10. Версия Windows App SDK закреплена в проекте приложения.
 
+Обзор показывает реальные состояния RTSS/NVIDIA, основной дисплей, счётчики и последние игры. В библиотеке и на странице игры отображаются изображения Steam или иконки EXE; при отсутствии изображения используется штатный значок WinUI. Интерфейс рассчитан на окно ноутбука от 960×560 epx, а при уменьшении ширины перестраивает панели. Редактор профиля использует черновик: сохранение в SQLite и применение RTSS/NVIDIA выполняются разными действиями.
+
 ```powershell
 dotnet build .\GameProfileManager.slnx -c Release
 dotnet run --project .\tests\GameProfileManager.Tests -c Release
@@ -87,6 +89,8 @@ Test-Path .\artifacts\test-exe\GameProfileManager.pri
 ```
 
 `Test-Path` должен вернуть `True`: проектный файл ресурсов WinUI обязателен для запуска. Переносите всю папку `test-exe`, а не один EXE. Обычный запуск запрашивает права администратора и использует локальную базу пользователя; для безопасной автоматической проверки используйте UI Smoke выше.
+
+Чтобы проверить запуск именно опубликованной сборки с fake-клиентами и временной SQLite, передайте UI Smoke второй аргумент: `dotnet run --project .\tests\GameProfileManager.UITests -c Release -- $smoke .\artifacts\test-exe\GameProfileManager.exe` (с новым пустым каталогом `$smoke`).
 
 Для локальной сборки EXE-установщика также установите [Inno Setup 6](https://jrsoftware.org/isdl.php):
 

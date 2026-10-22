@@ -36,11 +36,13 @@ internal static class FileIcon
 
         var handles = new IntPtr[1];
         uint count = PrivateExtractIcons(exePath, 0, 256, 256, handles, new uint[1], 1, 0);
-        if (count != 1 || handles[0] == IntPtr.Zero) return null;
         try
         {
             Directory.CreateDirectory(directory);
-            using var icon = (Icon)Icon.FromHandle(handles[0]).Clone();
+            using var icon = count == 1 && handles[0] != IntPtr.Zero
+                ? (Icon)Icon.FromHandle(handles[0]).Clone()
+                : Icon.ExtractAssociatedIcon(exePath);
+            if (icon is null) return null;
             using var bitmap = icon.ToBitmap();
             string pending = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
             bitmap.Save(pending, System.Drawing.Imaging.ImageFormat.Png);
@@ -48,7 +50,7 @@ internal static class FileIcon
             catch (IOException) { File.Delete(pending); }
             return destination;
         }
-        finally { DestroyIcon(handles[0]); }
+        finally { if (handles[0] != IntPtr.Zero) DestroyIcon(handles[0]); }
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "PrivateExtractIconsW")]

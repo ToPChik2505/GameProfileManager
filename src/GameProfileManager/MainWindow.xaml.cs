@@ -332,6 +332,8 @@ public sealed partial class MainWindow : Window
         bool graphicsUnavailable = Descendants(ContentFrame).OfType<TextBlock>()
             .Any(text => text.Text?.Contains("недоступ", StringComparison.OrdinalIgnoreCase) == true);
         if (!graphicsUnavailable) throw new InvalidOperationException("Graphics availability message is missing.");
+        bool iconLoaded = _viewModel.GameCards.FirstOrDefault()?.Icon is not null;
+        if (!iconLoaded) throw new InvalidOperationException("Game EXE icon did not load in WinUI.");
         var actualSizes = new List<string>();
         bool firstSize = true;
         foreach (var size in new[] { (1280, 720), (1024, 768), (960, 560) })
@@ -347,8 +349,12 @@ public sealed partial class MainWindow : Window
             actualSizes.Add($"{AppWindow.Size.Width}x{AppWindow.Size.Height}");
             await CaptureAsync(Path.Combine(screenshotDirectory, $"Light-overview-{size.Item1}x{size.Item2}.png"));
         }
-        Navigate("profile-new");
-        await WaitForRouteAsync("profile-new");
+        foreach (string route in new[] { "games", "game", "profile-new" })
+        {
+            Navigate(route, route == "game" ? gameId : null);
+            await WaitForRouteAsync(route);
+            await CaptureAsync(Path.Combine(screenshotDirectory, $"Light-{route}-960x560.png"));
+        }
         var draftName = Descendants(ContentFrame).OfType<TextBox>().First();
         draftName.Text = "UI Smoke профиль";
         var smokeStore = new GameProfileManager.Infrastructure.SqliteStateStore(Path.Combine(outputDirectory, "state"));
@@ -372,7 +378,7 @@ public sealed partial class MainWindow : Window
         if (SmokeAudit.WriteAttempts != 0)
             throw new InvalidOperationException("Navigation attempted external writes: " + SmokeAudit.WriteAttempts);
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
-            JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable,
+            JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,
                 responsiveWidth = Descendants(ContentFrame).OfType<Grid>()
