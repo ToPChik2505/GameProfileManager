@@ -140,6 +140,31 @@ internal static partial class PageFactory
         return grid;
     }
 
+    private static UIElement ResponsiveTiles(params FrameworkElement[] cards)
+    {
+        var grid = new Grid { ColumnSpacing = 16, RowSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (int i = 0; i < cards.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.Children.Add(cards[i]);
+        }
+        void Arrange(double width)
+        {
+            bool wide = width >= 930;
+            grid.ColumnDefinitions[1].Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            for (int i = 0; i < cards.Length; i++)
+            {
+                Grid.SetColumn(cards[i], wide ? i % 2 : 0);
+                Grid.SetRow(cards[i], wide ? i / 2 : i);
+            }
+        }
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
+        return grid;
+    }
+
     private static ComboBox Choice<T>(IEnumerable<ModeOption<T>> options, T selected, Action<T> changed)
     {
         var combo = new ComboBox { MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
