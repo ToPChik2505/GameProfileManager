@@ -1,17 +1,15 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Windows;
-using System.Windows.Data;
 using System.Windows.Input;
-using System.Windows.Threading;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using GameProfileManager.Core;
 using GameProfileManager.Application;
 using GameProfileManager.Infrastructure;
 using GameProfileManager.Integrations;
 using GameProfileManager.Presentation;
 using Microsoft.Win32;
-using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 namespace GameProfileManager;
 
@@ -61,6 +59,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ObservableCollection<ModeOption<int>> FpsFractions { get; } = new();
     public IReadOnlyList<ModeOption<string>> ThemeOptions { get; } =
     [
+        new("System", "Системная"),
         new("Light", "Светлая"),
         new("Dark", "Тёмная")
     ];
@@ -121,8 +120,45 @@ public sealed partial class MainViewModel : Observable, IDisposable
         RefreshDisplays(); SaveOnly(false);
     }
     public ObservableCollection<PerformanceProfile> Profiles => _state.Profiles;
+    public bool SaveProfileDraft(Guid? profileId, PerformanceProfile draft, out string error)
+    {
+        error = "";
+        if (_busy) { error = "Дождитесь завершения текущей операции."; return false; }
+        if (string.IsNullOrWhiteSpace(draft.Name)) { error = "Введите название профиля."; return false; }
+        if (draft.FpsMode == FpsLimitMode.Manual && (draft.FpsLimit < 1 || draft.FpsLimit > 1000))
+        { error = "Введите FPS от 1 до 1000."; return false; }
+        if (draft.FpsMode == FpsLimitMode.DisplayFraction && (draft.FpsDivisor < 1 || draft.FpsDivisor > 12))
+        { error = "Выберите долю частоты от 1/1 до 1/12."; return false; }
+        PerformanceProfile target;
+        if (profileId is null)
+        {
+            target = new PerformanceProfile();
+            Profiles.Add(target);
+            ProfileOptions.Add(new ProfileOption(target));
+            Hook(target);
+        }
+        else
+        {
+            target = Profiles.FirstOrDefault(item => item.Id == profileId.Value)!;
+            if (target is null || target.IsBuiltIn) { error = "Профиль не найден или защищён."; return false; }
+        }
+        target.Name = draft.Name.Trim();
+        target.Description = draft.Description;
+        target.FpsMode = draft.FpsMode;
+        target.FpsLimit = draft.FpsLimit;
+        target.FpsDivisor = draft.FpsDivisor;
+        target.Vrr = draft.Vrr;
+        target.VSync = draft.VSync;
+        target.RtssLimiterMode = draft.RtssLimiterMode;
+        SelectedProfile = target;
+        SaveOnly(false);
+        RefreshDisplays();
+        UpdateSummary();
+        Notice = "Профиль сохранён. Для записи в RTSS/NVIDIA примените его к игре.";
+        return true;
+    }
     public ObservableCollection<ProfileOption> ProfileOptions { get; } = new();
-    public ICollectionView GamesView { get; }
+    public ObservableCollection<GameEntryViewModel> GamesView { get; } = new();
     public IReadOnlyList<ModeOption<VrrMode>> VrrModes { get; } =
     [
         new(VrrMode.GSync, ProfileLabels.Vrr(VrrMode.GSync)),
@@ -204,7 +240,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
             Changed(nameof(CanEdit));
             Changed(nameof(SelectedGameHasBackup));
             Changed(nameof(SelectedProfileIsEditable));
-            CommandManager.InvalidateRequerySuggested();
+            RaiseCommandState();
         }
     }
     public bool CanEdit => !IsApplyingAll;
@@ -248,7 +284,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         get => _state.Theme;
         set
         {
-            string theme = value == "Light" ? "Light" : "Dark";
+            string theme = value is "Light" or "Dark" ? value : "System";
             if (_state.Theme == theme) return;
             _state.Theme = theme;
             ThemeManager.Apply(theme);
@@ -351,7 +387,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ICommand AddGameCommand { get; }
     public ICommand RemoveGameCommand { get; }
     public ICommand ChooseExeCommand { get; }
-    public Func<string, string, string?, string?>? PickLocalFile { get; set; }
+    public Func<string, string, string?, Task<string?>>? PickLocalFileAsync { get; set; }
     public ICommand ImportSteamCommand { get; }
     public ICommand ImportEpicCommand { get; }
     public ICommand ApplyCommand { get; }
@@ -370,10 +406,9 @@ public sealed partial class MainViewModel : Observable, IDisposable
         _sync = sync ?? SyncServiceFactory.Create(_store, () => Volatile.Read(ref _displaySnapshot));
         _syncCoordinator = new SyncOperationCoordinator(_sync);
         // Ошибка чтения должна прервать запуск: пустое состояние нельзя сохранять поверх существующей базы.
-        try { _state = _store.Load(); }
-        catch (Exception ex) { throw new StateLoadException(Path.Combine(_store.DirectoryPath, "profiles.db"), ex); }
-        _iconLoader = new GameIconLoader(Dispatcher.CurrentDispatcher, _store.Log);
-        _state.Theme = _state.Theme == "Light" ? "Light" : "Dark";
+        _state = LoadStateOrThrow(_store);
+        _iconLoader = new GameIconLoader(DispatcherQueue.GetForCurrentThread(), _store.Log);
+        _state.Theme = _state.Theme is "Light" or "Dark" ? _state.Theme : "System";
         ThemeManager.Apply(_state.Theme);
         if (!_state.PresetNamesLocalized)
         {
@@ -410,10 +445,6 @@ public sealed partial class MainViewModel : Observable, IDisposable
             try { _store.Save(_state); Notice = $"Убрано служебных приложений Steam: {obsoleteUtilities}."; }
             catch (Exception ex) { _store.Log(ex); Notice = "Ошибка сохранения: " + ex.Message; }
         }
-        GamesView = CollectionViewSource.GetDefaultView(GameCards);
-        GamesView.Filter = item => item is GameEntryViewModel card &&
-            (string.IsNullOrWhiteSpace(Search) || card.Name.Contains(Search, StringComparison.OrdinalIgnoreCase) || card.ExePath.Contains(Search, StringComparison.OrdinalIgnoreCase)) &&
-            (StatusFilter == "Все статусы" || card.StatusLabel == StatusFilter);
         ProfileOptions.Add(new ProfileOption(null));
         foreach (var profile in Profiles) ProfileOptions.Add(new ProfileOption(profile));
         AddProfileCommand = new Command(() => { var p = new PerformanceProfile(); Profiles.Add(p); ProfileOptions.Add(new ProfileOption(p)); Hook(p); SelectedProfile = p; SaveOnly(); UpdateSummary(); }, () => !_busy);
@@ -434,7 +465,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
             Unhook(SelectedProfile);
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
         }, () => !_busy);
-        AddGameCommand = new Command(AddGame, () => !_busy);
+        AddGameCommand = new Command(() => _ = AddGameAsync(), () => !_busy);
         RemoveGameCommand = new Command(() => _ = RemoveSelectedGameAsync(), () => !_busy);
         ChooseExeCommand = new Command(() => _ = ChooseExeAsync(), () => !_busy);
         ImportSteamCommand = new Command(() => _ = ImportSteamAsync(), () => !_busy);
@@ -461,9 +492,9 @@ public sealed partial class MainViewModel : Observable, IDisposable
                 () => Notice = game.Status == ApplyStatus.Error ? game.Detail : "Исходные параметры восстановлены.");
         }, () => !_busy);
         BackupCommand = new Command(() => Run(() => Notice = "Резервная копия: " + _store.ExportBackup(_state)), () => !_busy);
-        BrowseRtssCommand = new Command(() =>
+        BrowseRtssCommand = new Command(async () =>
         {
-            string? path = SelectLocalFile("Выберите RTSSHooks64.dll", "RTSSHooks64.dll", RtssDirectory);
+            string? path = await SelectLocalFileAsync("Выберите RTSSHooks64.dll", "RTSSHooks64.dll", RtssDirectory);
             if (path is not null) { RtssDirectory = Path.GetDirectoryName(path)!; SaveOnly(); _ = RefreshIntegrationStatusAsync(); }
         }, () => !_busy);
         StartRtssCommand = new Command(() => Run(() =>
@@ -484,8 +515,8 @@ public sealed partial class MainViewModel : Observable, IDisposable
         UpdateSummary();
         _ = RefreshIntegrationStatusAsync();
         if (_state.CheckAtStartup)
-            Dispatcher.CurrentDispatcher.BeginInvoke(new Action(() => _ = ApplyAllAsync(checkSavedFirst: true)),
-                DispatcherPriority.Background);
+            DispatcherQueue.GetForCurrentThread().TryEnqueue(DispatcherQueuePriority.Low,
+                () => _ = ApplyAllAsync(checkSavedFirst: true));
         _lastRtssProcessState = RtssClient.ProcessIsRunning;
         _rtssTimer.Interval = TimeSpan.FromSeconds(2);
         _rtssTimer.Tick += (_, _) => { PollRtss(); PollDisplays(); };
@@ -495,6 +526,12 @@ public sealed partial class MainViewModel : Observable, IDisposable
             _activityDelayTimer.Stop();
             if (IsApplyingAll) IsActivityVisible = true;
         };
+    }
+
+    public static AppState LoadStateOrThrow(IStateStore store)
+    {
+        try { return store.Load(); }
+        catch (Exception ex) { throw new StateLoadException(Path.Combine(store.DirectoryPath, "profiles.db"), ex); }
     }
 
     private void PollRtss()
@@ -532,9 +569,28 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
     private void RefreshGamesView()
     {
-        GamesView.Refresh();
+        var desired = GameCards.Where(card =>
+            (string.IsNullOrWhiteSpace(Search) || card.Name.Contains(Search, StringComparison.OrdinalIgnoreCase) ||
+             card.ExePath.Contains(Search, StringComparison.OrdinalIgnoreCase)) &&
+            (StatusFilter == "Все статусы" || card.StatusLabel == StatusFilter)).ToArray();
+        for (int index = 0; index < desired.Length; index++)
+        {
+            int old = GamesView.IndexOf(desired[index]);
+            if (old < 0) GamesView.Insert(index, desired[index]);
+            else if (old != index) GamesView.Move(old, index);
+        }
+        while (GamesView.Count > desired.Length) GamesView.RemoveAt(GamesView.Count - 1);
         if (SelectedGameCard is not null && !GamesView.Contains(SelectedGameCard))
             SelectedGame = null;
+    }
+
+    private void RaiseCommandState()
+    {
+        foreach (var command in new ICommand[] { AddProfileCommand, DuplicateProfileCommand, RemoveProfileCommand,
+                     AddGameCommand, RemoveGameCommand, ChooseExeCommand, ImportSteamCommand, ImportEpicCommand,
+                     ApplyCommand, ApplyGameCommand, VerifyCommand, RestoreCommand, BackupCommand,
+                     BrowseRtssCommand, StartRtssCommand, DiagnosticsCommand })
+            if (command is IRefreshableCommand refreshable) refreshable.Refresh();
     }
 
     private void ScheduleSave()
@@ -684,27 +740,23 @@ public sealed record AttentionItem(string Category, string Subject, string Title
     int PageIndex, string ActionLabel, GameEntry? Game, DiagnosticSeverity Severity,
     DiagnosticRule RuleId, bool CanAutoFix);
 
-public sealed class Command(Action execute, Func<bool>? canExecute = null) : ICommand
+public sealed class Command(Action execute, Func<bool>? canExecute = null) : ICommand, IRefreshableCommand
 {
-    public event EventHandler? CanExecuteChanged
-    {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
-    }
+    public event EventHandler? CanExecuteChanged;
     public bool CanExecute(object? parameter) => canExecute?.Invoke() ?? true;
     public void Execute(object? parameter) { if (CanExecute(parameter)) execute(); }
+    public void Refresh() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }
 
-public sealed class ParameterCommand(Action<object?> execute, Func<bool>? canExecute = null) : ICommand
+public sealed class ParameterCommand(Action<object?> execute, Func<bool>? canExecute = null) : ICommand, IRefreshableCommand
 {
-    public event EventHandler? CanExecuteChanged
-    {
-        add => CommandManager.RequerySuggested += value;
-        remove => CommandManager.RequerySuggested -= value;
-    }
+    public event EventHandler? CanExecuteChanged;
     public bool CanExecute(object? parameter) => canExecute?.Invoke() ?? true;
     public void Execute(object? parameter) { if (CanExecute(parameter)) execute(parameter); }
+    public void Refresh() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }
+
+public interface IRefreshableCommand { void Refresh(); }
 
 public sealed class ModeOption<T>(T value, string label) : Observable
 {

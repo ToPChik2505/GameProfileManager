@@ -196,7 +196,7 @@ public sealed class AppState
     public RtssLimiterMode RtssLimiterMode { get; set; } = RtssLimiterMode.FrontEdgeSync;
     public bool CheckAtStartup { get; set; } = true;
     public bool MinimizeToTray { get; set; }
-    public string Theme { get; set; } = "Dark";
+    public string Theme { get; set; } = "System";
     public string DefaultDisplayId { get; set; } = "";
     public Dictionary<string, string> DisplayNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public DateTimeOffset? LastSync { get; set; }

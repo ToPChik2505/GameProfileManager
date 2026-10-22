@@ -1,93 +1,109 @@
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Reflection;
 using System.Security.Principal;
-using System.Windows;
 using GameProfileManager.Application;
-using MessageBox = System.Windows.MessageBox;
+using GameProfileManager.Infrastructure;
+using GameProfileManager.Core;
+using GameProfileManager.Integrations;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace GameProfileManager;
 
-public partial class App : System.Windows.Application
+public partial class App : Microsoft.UI.Xaml.Application
 {
     private SingleInstanceCoordinator? _singleInstance;
+    internal static MainWindow? MainWindowInstance { get; private set; }
 
-    protected override void OnStartup(StartupEventArgs e)
+    public App() => InitializeComponent();
+
+    protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        // Контекст DPI задаётся до создания WPF-окон и WinForms-меню трея.
-        System.Windows.Forms.Application.SetHighDpiMode(System.Windows.Forms.HighDpiMode.PerMonitorV2);
-        // UI smoke и другие хосты используют ресурсы WPF, но не должны
-        // запускать ещё один экземпляр приложения.
-        if (Assembly.GetEntryAssembly() != typeof(App).Assembly)
+        string[] commandLine = Environment.GetCommandLineArgs();
+        int smokeArgument = Array.IndexOf(commandLine, "--ui-smoke");
+        bool smoke = smokeArgument >= 0 && smokeArgument + 1 < commandLine.Length;
+        string? smokeDirectory = smoke ? Path.GetFullPath(commandLine[smokeArgument + 1]) : null;
+        _singleInstance = new SingleInstanceCoordinator(smoke ? "GameProfileManager.UiSmoke." + Environment.ProcessId : "GameProfileManager");
+        if (_singleInstance.TrySignalExisting()) { Exit(); return; }
+
+        if (!smoke && !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
         {
-            base.OnStartup(e);
-            return;
-        }
-        _singleInstance = new SingleInstanceCoordinator();
-        if (_singleInstance.TrySignalExisting())
-        {
-            Shutdown();
-            return;
-        }
-        if (!new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
-        {
-            // Предварительно проверенная задача может запускать установленную
-            // защищённую копию с повышением без повторного подтверждения UAC.
-            if (ElevatedLaunchTask.TryRun())
-            {
-                Shutdown();
-                return;
-            }
+            if (ElevatedLaunchTask.TryRun()) { Exit(); return; }
             try
             {
                 Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
                 {
-                    Verb = "runas",
-                    UseShellExecute = true,
-                    WorkingDirectory = AppContext.BaseDirectory
+                    Verb = "runas", UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory
                 });
             }
             catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
             {
-                MessageBox.Show("Для применения профилей нужны права администратора. Запуск отменён.",
-                    "Game Profile Manager", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ShowStartupError("Для применения профилей нужны права администратора. Запуск отменён.");
+                return;
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Не удалось запросить права администратора: " + ex.Message,
-                    "Game Profile Manager", MessageBoxButton.OK, MessageBoxImage.Error);
+                ShowStartupError("Не удалось запросить права администратора: " + ex.Message);
+                return;
             }
-            Shutdown();
+            Exit();
             return;
         }
-        if (!_singleInstance.TryStart(() => Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (MainWindow is GameProfileManager.MainWindow window)
-                    window.RestoreFromSecondLaunch();
-            }))))
+
+        if (!_singleInstance.TryStart(() => MainWindowInstance?.DispatcherQueue.TryEnqueue(
+                () => MainWindowInstance?.RestoreFromSecondLaunch())))
         {
-            Shutdown();
+            Exit();
             return;
         }
-        base.OnStartup(e);
+
         try
         {
-            MainWindow = new MainWindow();
-            ((GameProfileManager.MainWindow)MainWindow).MaximizeForApplicationStartup();
-            MainWindow.Show();
+            var store = new SqliteStateStore(smoke ? Path.Combine(smokeDirectory!, "state") : null);
+            SyncService? sync = smoke ? new SyncService(store,
+                _ => new SmokeRtssClient(), () => new SmokeNvidiaClient(), () => []) : null;
+            MainWindowInstance = new MainWindow(new MainViewModel(store, sync));
+            ThemeManager.Apply(MainWindowInstance.ViewModel.Theme);
+            MainWindowInstance.Activate();
+            if (!smoke) MainWindowInstance.MaximizeForApplicationStartup();
+            if (smoke) MainWindowInstance.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try { await MainWindowInstance.RunSmokeAsync(smokeDirectory!); }
+                catch (Exception ex)
+                {
+                    File.WriteAllText(Path.Combine(smokeDirectory!, "smoke-error.txt"), ex.ToString());
+                    MainWindowInstance.Close();
+                }
+            });
         }
         catch (StateLoadException ex)
         {
-            MessageBox.Show(
-                $"{ex.Message}\n\nПриложение завершит работу без сохранения пустого состояния. Проверьте доступ к файлу или восстановите резервную копию JSON.\n\nПричина: {ex.InnerException?.Message}",
-                "Game Profile Manager", MessageBoxButton.OK, MessageBoxImage.Error);
-            Shutdown(-1);
+            ShowStartupError(
+                $"{ex.Message}\n\nПриложение завершит работу без сохранения пустого состояния.\n\nПричина: {ex.InnerException?.Message}",
+                "Ошибка загрузки данных");
         }
     }
 
-    protected override void OnExit(ExitEventArgs e)
+    private void ShowStartupError(string message, string title = "Game Profile Manager")
+    {
+        var errorWindow = new Window { Title = title };
+        var stack = new StackPanel { Spacing = 18, Padding = new Thickness(24) };
+        stack.Children.Add(new InfoBar
+        {
+            Title = title, Message = message, Severity = InfoBarSeverity.Error,
+            IsOpen = true, IsClosable = false
+        });
+        var close = new Button { Content = "Закрыть", HorizontalAlignment = HorizontalAlignment.Right };
+        close.Click += (_, _) => errorWindow.Close();
+        stack.Children.Add(close);
+        errorWindow.Content = stack;
+        errorWindow.Closed += (_, _) => Exit();
+        errorWindow.Activate();
+    }
+
+    internal void ReleaseInstance()
     {
         _singleInstance?.Dispose();
-        base.OnExit(e);
+        _singleInstance = null;
     }
 }

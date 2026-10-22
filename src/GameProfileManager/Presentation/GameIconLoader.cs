@@ -1,21 +1,22 @@
-using System.Windows.Media;
-using System.Windows.Threading;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using GameProfileManager.Core;
 
 namespace GameProfileManager.Presentation;
 
-/// <summary>Загружает иконки вне Dispatcher и удерживает ограниченный кэш готовых изображений.</summary>
+/// <summary>Загружает иконки вне UI-потока и удерживает ограниченный кэш изображений.</summary>
 internal sealed class GameIconLoader
 {
     private const int CacheCapacity = 64;
-    private readonly Dispatcher _dispatcher;
+    private readonly DispatcherQueue _dispatcher;
     private readonly Action<Exception> _log;
     private readonly SemaphoreSlim _slots = new(2, 2);
     private readonly Dictionary<string, LinkedListNode<(string Key, ImageSource Image)>> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly LinkedList<(string Key, ImageSource Image)> _recency = new();
     private readonly Dictionary<string, List<Action<ImageSource?>>> _inFlight = new(StringComparer.OrdinalIgnoreCase);
 
-    public GameIconLoader(Dispatcher dispatcher, Action<Exception> log)
+    public GameIconLoader(DispatcherQueue dispatcher, Action<Exception> log)
     {
         _dispatcher = dispatcher;
         _log = log;
@@ -44,17 +45,23 @@ internal sealed class GameIconLoader
 
     private async Task LoadAsync(string exePath, string? steamAppId, string key)
     {
-        ImageSource? image = null;
+        string? path = null;
         try
         {
             await _slots.WaitAsync();
-            try { image = await Task.Run(() => FileIcon.Load(exePath, steamAppId)); }
+            try { path = await Task.Run(() => FileIcon.LoadPath(exePath, steamAppId)); }
             finally { _slots.Release(); }
         }
         catch (Exception ex) { _log(ex); }
 
-        await _dispatcher.InvokeAsync(() =>
+        _dispatcher.TryEnqueue(() =>
         {
+            ImageSource? image = null;
+            if (path is not null)
+            {
+                try { image = new BitmapImage(new Uri(path)); }
+                catch (Exception ex) { _log(ex); }
+            }
             if (!_inFlight.Remove(key, out var callbacks)) return;
             if (image is not null) AddToCache(key, image);
             foreach (var callback in callbacks) callback(image);

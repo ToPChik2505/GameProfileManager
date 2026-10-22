@@ -32,10 +32,12 @@ $stagingRoot = Join-Path $repository 'artifacts\installer-staging'
 $stage = Join-Path $stagingRoot ([guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $stage, $output -Force | Out-Null
 try {
-    & dotnet publish $project -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:DebugType=None -o $stage
+    & dotnet publish $project -c Release -r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:CopyOutputSymbolsToPublishDirectory=false -o $stage
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish завершился с кодом $LASTEXITCODE" }
 
-    foreach ($required in @('GameProfileManager.exe', 'SDL3.dll', 'SDL3-LICENSE.txt')) {
+    foreach ($required in @('GameProfileManager.exe', 'GameProfileManager.Engine.dll',
+                           'Microsoft.WindowsAppRuntime.dll', 'Microsoft.ui.xaml.dll',
+                           'SDL3.dll', 'SDL3-LICENSE.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $stage $required) -PathType Leaf)) {
             throw "В публикации отсутствует $required"
         }

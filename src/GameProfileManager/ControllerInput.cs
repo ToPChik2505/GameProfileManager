@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
-using System.Windows.Threading;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 
 namespace GameProfileManager;
 
@@ -103,6 +104,7 @@ internal sealed class SdlControllerInput : IDisposable
     private const int BackgroundIntervalMs = 100;
     private static readonly ControllerButton[] PolledButtons = Enum.GetValues<ControllerButton>();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(ForegroundIntervalMs) };
+    private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
 
     /// <summary>
     /// В трее опрос выполняется реже ради экономии CPU, но не останавливается:
@@ -169,10 +171,10 @@ internal sealed class SdlControllerInput : IDisposable
                     SetStatus(pad.Name, true, pad.Type is 5 or 6 or 7);
                     // Модальный редактор может открыться из обработчика. Отложенный вызов
                     // не допускает повторного входа в текущий цикл опроса SDL.
-                    _timer.Dispatcher.BeginInvoke(new Action(() =>
+                    _dispatcher.TryEnqueue(DispatcherQueuePriority.High, () =>
                     {
                         if (_initialized) ActionReceived?.Invoke(action);
-                    }), DispatcherPriority.Input);
+                    });
                 }
             }
         }

@@ -62,6 +62,7 @@ public sealed partial class MainViewModel
         card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
         _gameCards.Add(game, card);
         GameCards.Add(card);
+        RefreshGamesView();
         PropertyChangedEventHandler handler = (_, e) =>
         {
         if (e.PropertyName == nameof(GameEntry.DisplayProfileTargetId))
@@ -113,6 +114,7 @@ public sealed partial class MainViewModel
         {
             card.Dispose();
             GameCards.Remove(card);
+            RefreshGamesView();
         }
     }
     private void RefreshDisplays()
@@ -152,9 +154,9 @@ public sealed partial class MainViewModel
                 profile is null ? "—" : ProfileLabels.Rtss(RtssLimiterModeResolver.Resolve(_state, profile)) +
                 (profile.RtssLimiterMode is null ? " · общий режим" : " · режим профиля"),
                 value => game.RtssLimiterDisplay = value);
-            // Загрузка Icon выполняется привязкой только для отображаемых WPF-элементов.
+            // Загрузка Icon выполняется привязкой только для отображаемых элементов WinUI.
         }
-        if (StatusFilter != "Все статусы") GamesView.Refresh();
+        RefreshGamesView();
         Changed(nameof(SelectedProfileFpsDetail));
         UpdateSummary();
     }

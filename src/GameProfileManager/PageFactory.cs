@@ -1,0 +1,178 @@
+using GameProfileManager.Core;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+
+namespace GameProfileManager;
+
+internal sealed record PageComposition(UIElement Content, Func<Task<bool>>? CanLeave = null);
+
+internal static partial class PageFactory
+{
+    public static PageComposition Build(RouteRequest request) => request.Route switch
+    {
+        "overview" => Overview(request),
+        "games" => Games(request),
+        "game" => GameGeneral(request),
+        "game-fps" => GameFps(request),
+        "game-nvidia" => GameNvidia(request),
+        "game-rtss" => GameRtss(request),
+        "game-graphics" => Graphics(request),
+        "graphics-new" or "graphics-files" => GraphicsUnavailable(request),
+        "profiles" => Profiles(request),
+        "profile-new" or "profile-edit" => ProfileEditor(request),
+        "monitors" => Monitors(request),
+        "diagnostics" => Diagnostics(request),
+        "diagnostics-details" => DiagnosticDetails(request),
+        "settings" => Settings(request),
+        "settings-controller" => ControllerSettings(request),
+        "settings-backup" => BackupSettings(request),
+        "import" => Import(request),
+        _ => Shell("Раздел недоступен", "Неизвестный маршрут.")
+    };
+
+    private static MainViewModel Vm(RouteRequest request) => request.Owner.ViewModel;
+
+    private static PageComposition Shell(string title, string subtitle, params UIElement[] items)
+    {
+        var column = new StackPanel { Spacing = 16, Padding = new Thickness(24, 20, 24, 32), MaxWidth = 1440 };
+        column.SizeChanged += (_, args) =>
+        {
+            double width = args.NewSize.Width;
+            double side = width >= 1200 ? 32 : width >= 930 ? 24 : 20;
+            column.Padding = new Thickness(side, 20, side, 32);
+        };
+        column.Children.Add(new TextBlock { Text = title, Style = Style("TitleTextBlockStyle") });
+        if (!string.IsNullOrWhiteSpace(subtitle)) column.Children.Add(Secondary(subtitle));
+        foreach (var item in items) column.Children.Add(item);
+        return new PageComposition(new ScrollViewer { Content = column });
+    }
+
+    private static Style Style(string name) => (Style)Microsoft.UI.Xaml.Application.Current.Resources[name];
+
+    private static Brush? Brush(string name) => Microsoft.UI.Xaml.Application.Current.Resources.TryGetValue(name, out object value)
+        ? value as Brush : null;
+
+    private static StackPanel Column(params UIElement[] children)
+    {
+        var stack = new StackPanel { Spacing = 12 };
+        foreach (var child in children) stack.Children.Add(child);
+        return stack;
+    }
+
+    private static TextBlock Secondary(string value) => new()
+    {
+        Text = value, Style = Style("BodyTextBlockStyle"),
+        Opacity = 0.7, TextWrapping = TextWrapping.Wrap
+    };
+
+    private static TextBlock Strong(string value) => new()
+    {
+        Text = value, Style = Style("BodyStrongTextBlockStyle"), TextWrapping = TextWrapping.Wrap
+    };
+
+    private static Border Card(UIElement content) => new()
+    {
+        Background = Brush("CardBackgroundFillColorDefaultBrush"),
+        BorderBrush = Brush("CardStrokeColorDefaultBrush"), BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(8), Padding = new Thickness(16), Child = content
+    };
+
+    private static Button ActionButton(string label, Action action, bool accent = false, bool enabled = true)
+    {
+        var button = new Button { Content = label, Tag = action, IsEnabled = enabled, MinHeight = 40 };
+        if (accent) button.Style = Style("AccentButtonStyle");
+        button.Click += (_, _) => action();
+        return button;
+    }
+
+    private static StackPanel Buttons(params Button[] buttons)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        foreach (var button in buttons) row.Children.Add(button);
+        return row;
+    }
+
+    private static UIElement ResponsivePair(FrameworkElement first, FrameworkElement second)
+    {
+        var grid = new Grid { Name = "ResponsivePair", ColumnSpacing = 16, RowSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.RowDefinitions.Add(new RowDefinition());
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
+        grid.Children.Add(first);
+        grid.Children.Add(second);
+        Grid.SetColumn(second, 1);
+        void Arrange(double width)
+        {
+            bool wide = width >= 930;
+            grid.ColumnDefinitions[1].Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            grid.RowDefinitions[1].Height = wide ? new GridLength(0) : GridLength.Auto;
+            Grid.SetColumn(second, wide ? 1 : 0);
+            Grid.SetRow(second, wide ? 0 : 1);
+        }
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
+        return grid;
+    }
+
+    private static ComboBox Choice<T>(IEnumerable<ModeOption<T>> options, T selected, Action<T> changed)
+    {
+        var combo = new ComboBox { MinWidth = 220, MaxWidth = 480, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var option in options)
+            combo.Items.Add(new ComboBoxItem { Content = option.Label, Tag = option.Value });
+        combo.SelectedItem = combo.Items.OfType<ComboBoxItem>().FirstOrDefault(item =>
+            EqualityComparer<T>.Default.Equals((T)item.Tag, selected));
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem item && item.Tag is T value) changed(value);
+        };
+        return combo;
+    }
+
+    private static FrameworkElement Field(string label, UIElement editor, string? help = null)
+    {
+        var column = Column(Strong(label), editor);
+        if (help is not null) column.Children.Add(Secondary(help));
+        return column;
+    }
+
+    private static ToggleSwitch Toggle(string label, bool value, Action<bool> changed)
+    {
+        var toggle = new ToggleSwitch { Header = label, IsOn = value };
+        toggle.Toggled += (_, _) => changed(toggle.IsOn);
+        return toggle;
+    }
+
+    private static UIElement Message(string title, string detail, InfoBarSeverity severity = InfoBarSeverity.Informational)
+        => new InfoBar { Title = title, Message = detail, Severity = severity, IsOpen = true, IsClosable = false };
+
+    private static GameEntry? Game(RouteRequest request) => Vm(request).Games.FirstOrDefault(item => item.Id == request.ItemId)
+        ?? Vm(request).SelectedGame;
+
+    private static UIElement GameTabs(RouteRequest request, GameEntry game)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        foreach (var (label, route) in new[] { ("Общие", "game"), ("FPS / Лимит", "game-fps"),
+                     ("NVIDIA", "game-nvidia"), ("RTSS", "game-rtss"), ("Графические файлы", "game-graphics") })
+            row.Children.Add(ActionButton(label, () => request.Owner.Navigate(route, game.Id), route == request.Route));
+        return new ScrollViewer { Content = row, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Disabled };
+    }
+
+    private static UIElement GameHeader(RouteRequest request, GameEntry game) => Column(
+        Card(Column(Strong(game.Name), Secondary(game.ExePath))), GameTabs(request, game));
+
+    private static async Task<bool> Confirm(MainWindow owner, string title, string message, string action)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = owner.Content.XamlRoot, Title = title, Content = message,
+            PrimaryButtonText = action, CloseButtonText = "Отмена", DefaultButton = ContentDialogButton.Close
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    internal static Task<bool> ConfirmUpdate(MainWindow owner, string version) => Confirm(owner,
+        "Обновление Game Profile Manager", $"Доступна версия {version}. Открыть страницу обновления?", "Открыть");
+}

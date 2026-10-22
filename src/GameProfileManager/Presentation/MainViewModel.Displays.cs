@@ -7,6 +7,27 @@ namespace GameProfileManager;
 /// <summary>Раздел обязанностей основной модели представления.</summary>
 public sealed partial class MainViewModel
 {
+    public async Task RefreshMonitorListAsync()
+    {
+        try
+        {
+            var found = await Task.Run(WindowsDisplayDiscovery.Read);
+            if (_disposed) return;
+            _displays.Clear();
+            foreach (var display in found) _displays.Add(display);
+            Volatile.Write(ref _displaySnapshot, found.ToArray());
+            CacheDisplayNames(found);
+            _displayMonitor.Reset(found);
+            UpdateDisplayOptions();
+            UpdateDisplaySummary();
+            UpdateFpsFractions();
+            RefreshDisplays();
+            DisplayStatus = found.Count == 0 ? "Windows не обнаружила активные экраны" :
+                "Список экранов обновлён";
+        }
+        catch (Exception ex) { _store.Log(ex); DisplayStatus = "Не удалось прочитать экраны: " + ex.Message; }
+    }
+
     private void LoadDisplays()
     {
         try

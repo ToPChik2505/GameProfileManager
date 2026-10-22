@@ -1,17 +1,15 @@
 using GameProfileManager.Core;
 using GameProfileManager.Integrations;
 using GameProfileManager.Application;
-using Microsoft.Win32;
-using OpenFileDialog = Microsoft.Win32.OpenFileDialog;
 
 namespace GameProfileManager;
 
 /// <summary>Раздел обязанностей основной модели представления.</summary>
 public sealed partial class MainViewModel
 {
-    private void AddGame()
+    private async Task AddGameAsync()
     {
-        string? path = SelectLocalFile("Выберите игровой .exe", "*.exe", null);
+        string? path = await SelectLocalFileAsync("Выберите игровой .exe", "*.exe", null);
         if (path is null) return;
         if (Games.Any(g => g.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase))) { Notice = "Этот .exe уже добавлен."; return; }
         var game = new GameEntry { Name = Path.GetFileNameWithoutExtension(path), ExePath = path, Detail = "Выберите профиль" };
@@ -20,7 +18,7 @@ public sealed partial class MainViewModel
     private async Task ChooseExeAsync()
     {
         if (SelectedGame is not { } game) { Notice = "Выберите игру."; return; }
-        string? path = SelectLocalFile("Выберите игровой процесс", "*.exe", game.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        string? path = await SelectLocalFileAsync("Выберите игровой процесс", "*.exe", game.InstallDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
         if (path is null) return;
         if (!game.ExePath.Equals(path, StringComparison.OrdinalIgnoreCase) &&
             SettingBackupOwnership.HasForGame(_state, game))
@@ -36,17 +34,8 @@ public sealed partial class MainViewModel
         SaveOnly();
     }
 
-    private string? SelectLocalFile(string title, string pattern, string? initialDirectory)
-    {
-        if (PickLocalFile is not null) return PickLocalFile(title, pattern, initialDirectory);
-        var dialog = new OpenFileDialog
-        {
-            Title = title,
-            Filter = pattern == "*.exe" ? "Приложения (*.exe)|*.exe" : "RTSSHooks64.dll|RTSSHooks64.dll",
-            InitialDirectory = initialDirectory ?? ""
-        };
-        return dialog.ShowDialog() == true ? dialog.FileName : null;
-    }
+    private Task<string?> SelectLocalFileAsync(string title, string pattern, string? initialDirectory) =>
+        PickLocalFileAsync?.Invoke(title, pattern, initialDirectory) ?? Task.FromResult<string?>(null);
     private async Task ImportSteamAsync()
     {
         if (_busy) return;

@@ -1,11 +1,11 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Windows.Media;
+using Microsoft.UI.Xaml.Media;
 using GameProfileManager.Core;
 
 namespace GameProfileManager.Presentation;
 
-/// <summary>Представляет игровую запись для WPF и хранит только UI-состояние иконки.</summary>
+/// <summary>Представляет игровую запись для WinUI и хранит только UI-состояние иконки.</summary>
 public sealed class GameEntryViewModel : Observable, IDisposable
 {
     private readonly GameIconLoader _iconLoader;

@@ -359,7 +359,7 @@ try
     Assert(loaded.Games.Count(g => g.ProfileId == cinematic.Id) == 2, "shared assignment persists");
     Assert(loaded.DefaultDisplayId == "display-b" && loaded.MinimizeToTray && loaded.Theme == "Light" &&
            loaded.RtssLimiterMode == RtssLimiterMode.BackEdgeSync &&
-           new AppState().Theme == "Dark" &&
+           new AppState().Theme == "System" &&
            loaded.Games.Single(g => g.Id == gameA.Id).DisplayId == "display-a" &&
            loaded.Profiles.Single(p => p.Id == cinematic.Id).FpsMode == FpsLimitMode.Manual,
         "display selection, tray preference and legacy manual FPS persist");
@@ -377,7 +377,7 @@ try
         "corrupt SQLite state is rejected without replacing the database");
     var failingStore = new FailingStateStore(corruptDbDirectory);
     bool startupBlocked = false;
-    try { _ = new MainViewModel(failingStore); }
+    try { _ = MainViewModel.LoadStateOrThrow(failingStore); }
     catch (StateLoadException) { startupBlocked = true; }
     Assert(startupBlocked && failingStore.SaveCalls == 0,
         "view model aborts startup after a load error without saving a blank state");

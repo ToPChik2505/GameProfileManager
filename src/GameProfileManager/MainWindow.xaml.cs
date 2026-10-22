@@ -3,81 +3,272 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
-using System.Windows.Input;
-using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Media.Animation;
-using GameProfileManager.Presentation;
-using GameProfileManager.Core;
-using Forms = System.Windows.Forms;
-using ComboBox = System.Windows.Controls.ComboBox;
-using Button = System.Windows.Controls.Button;
-using ButtonBase = System.Windows.Controls.Primitives.ButtonBase;
-using KeyEventArgs = System.Windows.Input.KeyEventArgs;
+using System.Text;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Navigation;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Windowing;
+using Windows.Graphics;
+using Windows.Graphics.Imaging;
+using Windows.Security.Cryptography;
+using Windows.System;
 
 namespace GameProfileManager;
 
-public partial class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
-    public static readonly DependencyProperty ContentColumnsProperty = DependencyProperty.Register(
-        nameof(ContentColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(2));
-    public static readonly DependencyProperty OverviewStatColumnsProperty = DependencyProperty.Register(
-        nameof(OverviewStatColumns), typeof(int), typeof(MainWindow), new PropertyMetadata(3));
-    public int ContentColumns { get => (int)GetValue(ContentColumnsProperty); private set => SetValue(ContentColumnsProperty, value); }
-    public int OverviewStatColumns { get => (int)GetValue(OverviewStatColumnsProperty); private set => SetValue(OverviewStatColumnsProperty, value); }
-
-    private readonly Forms.NotifyIcon _trayIcon;
-    private readonly Forms.ContextMenuStrip _trayMenu;
-    private readonly Forms.ToolStripItem _verifyTrayItem;
-    private readonly Forms.ToolStripItem _applyTrayItem;
-    private readonly Forms.ToolStripItem _exitTrayItem;
-    private HwndSource? _windowSource;
+    private readonly MainViewModel _viewModel;
+    private readonly ShellTrayIcon _trayIcon;
+    private readonly SdlControllerInput _controllerInput;
     private bool _exitRequested;
-    private bool _trayHintShown;
-    private bool _updatingWindowMinimum;
-    private WindowState _restoreWindowState = WindowState.Normal;
+    private bool _leaveApproved;
+    private bool _closeGuardPending;
+    private bool _controllerMode;
+    private bool _controllerConnected;
+    private ControllerFilePicker? _activePicker;
+    internal ControllerKeyboard? ActiveKeyboard { get; set; }
+    private string _route = "overview";
+    private string _controllerStatus = "Контроллер не подключён";
 
-    public MainWindow() : this(null)
-    {
-    }
+    public MainViewModel ViewModel => _viewModel;
+    public string CurrentRoute => _route;
+    public string ControllerStatus => _controllerStatus;
 
-    public MainWindow(MainViewModel? viewModel)
+    public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
-        UpdateStatusText.Text = $"Установлена версия {typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "неизвестна"}.";
-        Loaded += (_, _) => UpdateResponsiveLayout();
-        SizeChanged += (_, _) => UpdateResponsiveLayout();
-        DataContext = viewModel ?? new MainViewModel();
-        _trayMenu = new Forms.ContextMenuStrip();
-        _trayMenu.Items.Add("Открыть", null, (_, _) => Dispatcher.BeginInvoke(RestoreWindow));
-        _verifyTrayItem = _trayMenu.Items.Add("Проверить настройки", null, (_, _) => Dispatcher.BeginInvoke(() => ViewModel.VerifyCommand.Execute(null)));
-        _applyTrayItem = _trayMenu.Items.Add("Применить ко всем", null, (_, _) => Dispatcher.BeginInvoke(() => ViewModel.ApplyCommand.Execute(null)));
-        _trayMenu.Items.Add(new Forms.ToolStripSeparator());
-        _exitTrayItem = _trayMenu.Items.Add("Выход", null, (_, _) => Dispatcher.BeginInvoke(ExitFromTray));
-        var icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ??
-            (System.Drawing.Icon)System.Drawing.SystemIcons.Application.Clone();
-        _trayIcon = new Forms.NotifyIcon
+        _viewModel = viewModel;
+        ThemeManager.Apply(viewModel.Theme);
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+        AppWindow.SetIcon("Assets/app.ico");
+        AppWindow.Closing += OnAppWindowClosing;
+        Closed += OnClosed;
+        _viewModel.PropertyChanged += OnViewModelChanged;
+
+        _trayIcon = new ShellTrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico"),
+            RestoreWindow,
+            () => _viewModel.VerifyCommand.Execute(null),
+            () => _viewModel.ApplyCommand.Execute(null), ExitFromTray);
+
+        _controllerInput = new SdlControllerInput();
+        _controllerInput.ActionReceived += HandleControllerAction;
+        _controllerInput.StatusChanged += (status, connected, _) =>
         {
-            Icon = icon,
-            Text = string.Empty,
-            ContextMenuStrip = _trayMenu,
-            Visible = ViewModel.MinimizeToTray
+            _controllerStatus = connected ? status : string.IsNullOrWhiteSpace(status) ? "Контроллер не подключён" : status;
+            _controllerConnected = connected;
+            ControllerLegend.Visibility = connected && _controllerMode ? Visibility.Visible : Visibility.Collapsed;
         };
-        _trayIcon.DoubleClick += (_, _) => Dispatcher.BeginInvoke(RestoreWindow);
-        ViewModel.PropertyChanged += ViewModelPropertyChanged;
-        InitializeController();
-        IsVisibleChanged += (_, _) => _controllerInput.SetBackgroundMode(!IsVisible);
+        _controllerInput.Start();
+        _viewModel.PickLocalFileAsync = PickLocalFileAsync;
+        RootLayout.KeyDown += OnRootKeyDown;
+        RootLayout.PointerPressed += (_, _) =>
+        {
+            _controllerMode = false;
+            ControllerLegend.Visibility = Visibility.Collapsed;
+        };
+        Navigate("overview");
     }
 
-    private MainViewModel ViewModel => (MainViewModel)DataContext;
-
-    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    public void MaximizeForApplicationStartup()
     {
-        CheckUpdatesButton.IsEnabled = false;
-        UpdateStatusText.Text = "Проверяем последнюю опубликованную версию…";
+        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
+    }
+
+    public void RestoreFromSecondLaunch() => RestoreWindow();
+
+    private void RestoreWindow()
+    {
+        AppWindow.Show();
+        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Restore();
+        Activate();
+        _controllerInput.SetBackgroundMode(false);
+    }
+
+    private void ExitFromTray()
+    {
+        _exitRequested = true;
+        RestoreWindow();
+        Close();
+    }
+
+    private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (!_exitRequested && _viewModel.MinimizeToTray && _trayIcon.IsAvailable)
+        {
+            args.Cancel = true;
+            AppWindow.Hide();
+            _controllerInput.SetBackgroundMode(true);
+            return;
+        }
+        if (!_leaveApproved && ContentFrame.Content is RoutePage page)
+        {
+            args.Cancel = true;
+            if (!_closeGuardPending) _ = ConfirmCloseAsync(page);
+        }
+    }
+
+    private async Task ConfirmCloseAsync(RoutePage page)
+    {
+        _closeGuardPending = true;
+        try
+        {
+            if (!await page.CanLeaveAsync()) return;
+            _leaveApproved = true;
+            Close();
+        }
+        finally { _closeGuardPending = false; }
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        _controllerInput.Dispose();
+        _viewModel.Dispose();
+        _trayIcon.Dispose();
+        ((App)Microsoft.UI.Xaml.Application.Current).ReleaseInstance();
+        Microsoft.UI.Xaml.Application.Current.Exit();
+    }
+
+    private void OnViewModelChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(MainViewModel.Notice))
+        {
+            StatusBar.Message = _viewModel.Notice;
+            StatusBar.Severity = _viewModel.Notice.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase)
+                ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
+            StatusBar.IsOpen = true;
+        }
+        if (args.PropertyName == nameof(MainViewModel.Theme)) ThemeManager.Apply(_viewModel.Theme);
+    }
+
+    private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.IsSettingsSelected) Navigate("settings");
+        else if (args.SelectedItemContainer?.Tag is string route) Navigate(route);
+    }
+
+    private void NavView_BackRequested(NavigationView sender, NavigationViewBackRequestedEventArgs args) => GoBack();
+
+    public async void Navigate(string route, Guid? itemId = null)
+    {
+        if (string.IsNullOrWhiteSpace(route)) return;
+        if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync()) return;
+        _route = route;
+        ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, route, itemId));
+    }
+
+    public async void GoBack()
+    {
+        if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync()) return;
+        if (ContentFrame.CanGoBack) ContentFrame.GoBack();
+        else
+        {
+            _route = "overview";
+            ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, "overview", null));
+        }
+    }
+
+    internal void SetCurrentRoute(string route) => _route = route;
+
+    private void OnRootKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
+    {
+        if (_controllerConnected && args.Key.ToString().StartsWith("Gamepad", StringComparison.Ordinal))
+        { args.Handled = true; return; }
+        if (args.Key == VirtualKey.Escape) { GoBack(); args.Handled = true; }
+    }
+
+    private void HandleControllerAction(ControllerAction action)
+    {
+        if (action == ControllerAction.ToggleWindow)
+        {
+            if (!AppWindow.IsVisible) RestoreWindow();
+            else if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
+            return;
+        }
+        if (GetForegroundWindow() != WinRT.Interop.WindowNative.GetWindowHandle(this)) return;
+        _controllerMode = true;
+        ControllerLegend.Visibility = _controllerConnected ? Visibility.Visible : Visibility.Collapsed;
+        if (ActiveKeyboard is { } keyboard) { keyboard.HandleController(action); return; }
+        if (_activePicker is { } picker) { picker.HandleController(action); return; }
+        switch (action)
+        {
+            case ControllerAction.Up: FocusManager.TryMoveFocus(FocusNavigationDirection.Up); break;
+            case ControllerAction.Down: FocusManager.TryMoveFocus(FocusNavigationDirection.Down); break;
+            case ControllerAction.Left: FocusManager.TryMoveFocus(FocusNavigationDirection.Left); break;
+            case ControllerAction.Right: FocusManager.TryMoveFocus(FocusNavigationDirection.Right); break;
+            case ControllerAction.Back: GoBack(); break;
+            case ControllerAction.PreviousPage: CycleTopLevel(-1); break;
+            case ControllerAction.NextPage: CycleTopLevel(1); break;
+            case ControllerAction.PageUp: ScrollFocusedArea(-1); break;
+            case ControllerAction.PageDown: ScrollFocusedArea(1); break;
+            case ControllerAction.Secondary:
+                if (FocusManager.GetFocusedElement(RootLayout.XamlRoot) is TextBox text)
+                    _ = EditTextFromControllerAsync(text);
+                break;
+            case ControllerAction.Tertiary:
+                if (AppWindow.Presenter is OverlappedPresenter minimize) minimize.Minimize();
+                break;
+            case ControllerAction.Accept:
+                ActivateFocusedControl();
+                break;
+        }
+    }
+
+    private async Task EditTextFromControllerAsync(TextBox text)
+    {
+        string? value = await ControllerKeyboard.PromptAsync(this, "Ввод текста", text.Text);
+        if (value is not null) text.Text = value;
+        text.Focus(FocusState.Programmatic);
+    }
+
+    private void ActivateFocusedControl()
+    {
+        var focused = FocusManager.GetFocusedElement(RootLayout.XamlRoot);
+        switch (focused)
+        {
+            case Button { Tag: Action invoke }: invoke(); break;
+            case NavigationViewItem item: NavView.SelectedItem = item; break;
+            case ComboBox combo: combo.IsDropDownOpen = !combo.IsDropDownOpen; break;
+            case ToggleSwitch toggle: toggle.IsOn = !toggle.IsOn; break;
+            case TextBox text: _ = EditTextFromControllerAsync(text); break;
+            case ListViewItem listItem when listItem.Content is GameProfileManager.Presentation.GameEntryViewModel card:
+                _viewModel.SelectedGameCard = card; Navigate("game", card.Id); break;
+            case ListViewItem listItem when listItem.Content is GameProfileManager.Core.PerformanceProfile profile:
+                _viewModel.SelectedProfile = profile; Navigate("profile-edit", profile.Id); break;
+        }
+    }
+
+    private void ScrollFocusedArea(int direction)
+    {
+        var element = FocusManager.GetFocusedElement(RootLayout.XamlRoot) as DependencyObject;
+        while (element is not null && element is not ScrollViewer) element = VisualTreeHelper.GetParent(element);
+        if (element is not ScrollViewer scroll)
+            scroll = Descendants(ContentFrame).OfType<ScrollViewer>().FirstOrDefault()!;
+        if (scroll is not null) scroll.ChangeView(null, scroll.VerticalOffset + direction * 320, null);
+    }
+
+    private void CycleTopLevel(int direction)
+    {
+        var items = NavView.MenuItems.OfType<NavigationViewItem>().ToArray();
+        int index = Array.FindIndex(items, item => Equals(item.Tag, _route));
+        int next = (index + direction + items.Length) % items.Length;
+        NavView.SelectedItem = items[next];
+    }
+
+    private async Task<string?> PickLocalFileAsync(string title, string pattern, string? initialDirectory)
+    {
+        var picker = new ControllerFilePicker(this, title, pattern, initialDirectory);
+        _activePicker = picker;
+        try { return await picker.ShowAsync(); }
+        finally { _activePicker = null; }
+    }
+
+    public async Task CheckUpdatesAsync()
+    {
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
@@ -85,413 +276,154 @@ public partial class MainWindow : Window
             using var response = await client.GetAsync("https://api.github.com/repos/Vladislav2505/GameProfileManager/releases/latest");
             response.EnsureSuccessStatusCode();
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            var tag = json.RootElement.GetProperty("tag_name").GetString();
-            if (string.IsNullOrWhiteSpace(tag) || !Version.TryParse(tag.TrimStart('v', 'V'), out var latest))
+            string tag = json.RootElement.GetProperty("tag_name").GetString()
+                ?? throw new FormatException("У опубликованной версии нет номера.");
+            if (!Version.TryParse(tag.TrimStart('v', 'V'), out var latest))
                 throw new FormatException("У опубликованной версии неверный номер.");
-
             var current = typeof(MainWindow).Assembly.GetName().Version ?? new Version(0, 0);
             if (latest <= current)
             {
-                UpdateStatusText.Text = $"Установлена актуальная версия {current.ToString(3)}.";
+                _viewModel.Notice = $"Установлена актуальная версия {current.ToString(3)}.";
                 return;
             }
+            _viewModel.Notice = $"Доступна версия {latest}.";
+            if (await PageFactory.ConfirmUpdate(this, latest.ToString()))
+                Process.Start(new ProcessStartInfo("https://github.com/Vladislav2505/GameProfileManager/releases/tag/" +
+                    Uri.EscapeDataString(tag)) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or FormatException or Win32Exception)
+        {
+            _viewModel.Notice = "Ошибка проверки обновлений. Проверьте подключение к GitHub и повторите попытку.";
+        }
+    }
 
-            UpdateStatusText.Text = $"Доступна версия {latest}. Установлена {current.ToString(3)}.";
-            if (System.Windows.MessageBox.Show(this, $"Доступна версия {latest}. Открыть страницу обновления?",
-                    "Обновление Game Profile Manager", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+    internal async Task RunSmokeAsync(string outputDirectory)
+    {
+        Directory.CreateDirectory(outputDirectory);
+        string screenshotDirectory = Path.Combine(outputDirectory, "screenshots");
+        Directory.CreateDirectory(screenshotDirectory);
+        var routes = new[] { "overview", "games", "profiles", "monitors", "diagnostics", "settings",
+            "settings-controller", "settings-backup", "import", "profile-new", "game", "game-fps",
+            "game-nvidia", "game-rtss", "game-graphics" };
+        Guid? gameId = _viewModel.Games.FirstOrDefault()?.Id;
+        var observed = new List<string>();
+        double[] widePairs = [];
+        AppWindow.Resize(SmokePixels(1440, 900));
+        foreach (string theme in new[] { "Dark", "Light" })
+        {
+            _viewModel.Theme = theme;
+            RootLayout.Background = new SolidColorBrush(theme == "Dark"
+                ? new Windows.UI.Color { A = 255, R = 32, G = 32, B = 32 }
+                : new Windows.UI.Color { A = 255, R = 250, G = 250, B = 250 });
+            StatusBar.IsOpen = false;
+            foreach (string route in routes)
             {
-                Process.Start(new ProcessStartInfo("https://github.com/Vladislav2505/GameProfileManager/releases/tag/" + Uri.EscapeDataString(tag))
-                {
-                    UseShellExecute = true
-                });
+                Navigate(route, route.StartsWith("game", StringComparison.Ordinal) ? gameId : null);
+                await WaitForRouteAsync(route);
+                if (ContentFrame.Content is not RoutePage || CurrentRoute != route)
+                    throw new InvalidOperationException("Route failed: " + route);
+                if (theme == "Dark") observed.Add(route);
+                if (theme == "Dark" && route == "overview")
+                    widePairs = Descendants(ContentFrame).OfType<Grid>()
+                        .Where(grid => grid.Name == "ResponsivePair").Select(grid => grid.ActualWidth).ToArray();
+                await CaptureAsync(Path.Combine(screenshotDirectory, theme + "-" + route + ".png"));
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or FormatException or System.ComponentModel.Win32Exception)
+        bool graphicsUnavailable = Descendants(ContentFrame).OfType<TextBlock>()
+            .Any(text => text.Text?.Contains("недоступ", StringComparison.OrdinalIgnoreCase) == true);
+        if (!graphicsUnavailable) throw new InvalidOperationException("Graphics availability message is missing.");
+        var actualSizes = new List<string>();
+        bool firstSize = true;
+        foreach (var size in new[] { (1280, 720), (1024, 768), (960, 560) })
         {
-            UpdateStatusText.Text = "Не удалось проверить обновления. Проверьте подключение к GitHub и повторите попытку.";
-        }
-        finally
-        {
-            CheckUpdatesButton.IsEnabled = true;
-        }
-    }
-
-    private void UpdateResponsiveLayout()
-    {
-        UpdateWindowMinimumSizeForMonitor();
-        if (ActualWidth <= 0) return;
-        bool narrow = ActualWidth < 900;
-        bool medium = ActualWidth < 1150;
-        ContentColumns = narrow ? 1 : 2;
-        OverviewStatColumns = narrow ? 1 : 3;
-
-        GameListColumn.Width = new GridLength(narrow ? 250 : medium ? 280 : 360);
-        GameGapColumn.Width = new GridLength(narrow ? 10 : 18);
-        ProfileListColumn.Width = new GridLength(narrow ? 250 : medium ? 265 : 310);
-        ProfileGapColumn.Width = new GridLength(narrow ? 10 : 16);
-        DisplayListColumn.Width = new GridLength(narrow ? 250 : medium ? 260 : 280);
-        DisplayGapColumn.Width = new GridLength(narrow ? 10 : 16);
-
-        OverviewHeroArt.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
-        OverviewHeroArtColumn.Width = new GridLength(narrow ? 0 : 190);
-        OverviewStatsGrid.Margin = narrow ? new Thickness(0, 0, 0, 8) : new Thickness(0, 0, -15, 19);
-        OverviewGamesCard.Margin = OverviewProfilesCard.Margin = OverviewAttentionCard.Margin =
-            narrow ? new Thickness(0, 0, 0, 12) : new Thickness(0, 0, 15, 0);
-        OverviewIntegrationsCard.Margin = narrow ? new Thickness(0, 0, 0, 12) : new Thickness(0);
-        OverviewHowCard.Margin = narrow ? new Thickness(0) : new Thickness(12, 0, 0, 0);
-
-        if (RootTabs.Template.FindName("PageContent", RootTabs) is ContentPresenter page)
-            page.Margin = narrow ? new Thickness(18, 18, 18, 14) : new Thickness(30, 25, 30, 22);
-    }
-
-    private void ViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(MainViewModel.MinimizeToTray))
-            _trayIcon.Visible = ViewModel.MinimizeToTray;
-        if (e.PropertyName == nameof(MainViewModel.Theme))
-            UpdateTitleBarTheme();
-        if (e.PropertyName == nameof(MainViewModel.IsApplyingAll))
-            _verifyTrayItem.Enabled = _applyTrayItem.Enabled = _exitTrayItem.Enabled = !ViewModel.IsApplyingAll;
-        if (e.PropertyName == nameof(MainViewModel.Notice) && !IsVisible && ViewModel.MinimizeToTray &&
-            (ViewModel.Notice.Contains("RTSS закрыт", StringComparison.OrdinalIgnoreCase) ||
-             ViewModel.Notice.Contains("проверьте статусы", StringComparison.OrdinalIgnoreCase)))
-        {
-            _trayIcon.BalloonTipTitle = "Game Profile Manager";
-            _trayIcon.BalloonTipText = ViewModel.Notice;
-            _trayIcon.ShowBalloonTip(5000);
-        }
-    }
-
-    protected override void OnClosing(CancelEventArgs e)
-    {
-        if (ViewModel.IsApplyingAll && (_exitRequested || !ViewModel.MinimizeToTray))
-        {
-            e.Cancel = true;
-            _exitRequested = false;
-            ViewModel.Notice = "Применение ещё идёт. Дождитесь завершения обработки игр.";
-            return;
-        }
-        if (!_exitRequested && !Dispatcher.HasShutdownStarted && ViewModel.MinimizeToTray)
-        {
-            e.Cancel = true;
-            Hide();
-            if (!_trayHintShown)
+            AppWindow.Resize(SmokePixels(size.Item1, size.Item2));
+            if (firstSize)
             {
-                _trayHintShown = true;
-                _trayIcon.BalloonTipTitle = "Game Profile Manager";
-                _trayIcon.BalloonTipText = "Приложение работает в трее. Двойной щелчок вернёт окно.";
-                _trayIcon.ShowBalloonTip(4000);
+                Navigate("overview");
+                await WaitForRouteAsync("overview");
+                firstSize = false;
             }
-            return;
+            else await Task.Delay(650);
+            actualSizes.Add($"{AppWindow.Size.Width}x{AppWindow.Size.Height}");
+            await CaptureAsync(Path.Combine(screenshotDirectory, $"Light-overview-{size.Item1}x{size.Item2}.png"));
         }
-        base.OnClosing(e);
-    }
-
-    protected override void OnStateChanged(EventArgs e)
-    {
-        base.OnStateChanged(e);
-        if (WindowState != WindowState.Minimized)
-            _restoreWindowState = WindowState;
-        if (WindowState == WindowState.Minimized && ViewModel.MinimizeToTray) Hide();
-    }
-
-    private void RestoreWindow()
-    {
-        Show();
-        WindowState = _restoreWindowState;
-        Activate();
-    }
-
-    internal void MaximizeForApplicationStartup()
-    {
-        _restoreWindowState = WindowState.Maximized;
-        WindowState = WindowState.Maximized;
-    }
-
-    internal void RestoreFromSecondLaunch()
-    {
-        if (!IsVisible || WindowState == WindowState.Minimized) RestoreWindow();
-        if (!Activate())
-        {
-            Topmost = true;
-            Topmost = false;
-            Activate();
-        }
-    }
-
-    private void MinimizeCaption_Click(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
-
-    private void MaximizeCaption_Click(object sender, RoutedEventArgs e)
-    {
-        if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this);
-        else SystemCommands.MaximizeWindow(this);
-    }
-
-    private void CloseCaption_Click(object sender, RoutedEventArgs e) => Close();
-
-    private void ExitFromTray()
-    {
-        _exitRequested = true;
+        Navigate("profile-new");
+        await WaitForRouteAsync("profile-new");
+        var draftName = Descendants(ContentFrame).OfType<TextBox>().First();
+        draftName.Text = "UI Smoke профиль";
+        var smokeStore = new GameProfileManager.Infrastructure.SqliteStateStore(Path.Combine(outputDirectory, "state"));
+        bool draftIsolated = !smokeStore.Load().Profiles.Any(profile => profile.Name == draftName.Text);
+        var saveButton = Descendants(ContentFrame).OfType<Button>()
+            .First(button => button.Content is string label && label == "Сохранить профиль");
+        ((Action)saveButton.Tag)();
+        await WaitForRouteAsync("profiles");
+        var savedProfile = _viewModel.Profiles.FirstOrDefault(profile => profile.Name == "UI Smoke профиль")
+            ?? throw new InvalidOperationException("Editor did not save requested name. Text=" + draftName.Text +
+                "; notice=" + _viewModel.Notice + "; profiles=" +
+                string.Join(", ", _viewModel.Profiles.Select(profile => profile.Name)));
+        bool editorSaved = smokeStore.Load().Profiles.Any(profile => profile.Id == savedProfile.Id);
+        Navigate("profile-edit", savedProfile.Id);
+        await WaitForRouteAsync("profile-edit");
+        Descendants(ContentFrame).OfType<TextBox>().First().Text = "Несохранённый черновик";
+        bool discardPreserved = smokeStore.Load().Profiles.Any(profile =>
+            profile.Id == savedProfile.Id && profile.Name == "UI Smoke профиль");
+        if (!draftIsolated || !editorSaved || !discardPreserved)
+            throw new InvalidOperationException("Profile editor draft/persistence assertion failed.");
+        if (SmokeAudit.WriteAttempts != 0)
+            throw new InvalidOperationException("Navigation attempted external writes: " + SmokeAudit.WriteAttempts);
+        File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
+            JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable,
+                externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
+                actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,
+                responsiveWidth = Descendants(ContentFrame).OfType<Grid>()
+                    .Where(grid => grid.Name == "ResponsivePair").Select(grid => grid.ActualWidth).ToArray() },
+                new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);
+        _leaveApproved = true;
         Close();
     }
 
-    protected override void OnSourceInitialized(EventArgs e)
+    private SizeInt32 SmokePixels(int width, int height)
     {
-        base.OnSourceInitialized(e);
-        _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
-        _windowSource?.AddHook(WindowMessageHook);
-        UpdateTitleBarTheme();
+        double scale = ShellTrayIcon.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
+        return new SizeInt32((int)Math.Round(width * scale), (int)Math.Round(height * scale));
     }
 
-    private IntPtr WindowMessageHook(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    private async Task WaitForRouteAsync(string route)
     {
-        const int wmGetMinMaxInfo = 0x0024;
-        const int wmDpiChanged = 0x02E0;
-        if (message == wmDpiChanged)
+        for (int attempt = 0; attempt < 100; attempt++)
         {
-            // WPF processes WM_DPICHANGED and updates its device transform. Refresh
-            // responsive thresholds and size limits after that update, without consuming the message.
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
-                new Action(UpdateResponsiveLayout));
-            return IntPtr.Zero;
+            if (ContentFrame.Content is RoutePage page && page.Route == route && page.IsLoaded)
+            { await Task.Delay(650); return; }
+            await Task.Delay(25);
         }
-        if (message != wmGetMinMaxInfo || lParam == IntPtr.Zero) return IntPtr.Zero;
-
-        IntPtr monitor = MonitorFromWindow(hwnd, 2); // MONITOR_DEFAULTTONEAREST
-        if (monitor == IntPtr.Zero) return IntPtr.Zero;
-        var monitorInfo = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (!GetMonitorInfo(monitor, ref monitorInfo)) return IntPtr.Zero;
-
-        var bounds = Marshal.PtrToStructure<MinMaxInfo>(lParam);
-        bounds.MaxPosition.X = monitorInfo.Work.Left - monitorInfo.Monitor.Left;
-        bounds.MaxPosition.Y = monitorInfo.Work.Top - monitorInfo.Monitor.Top;
-        // MINMAXINFO uses physical pixels. Bound both maximize and interactive resize
-        // to this monitor's work area; the nearest monitor can have another DPI.
-        int maxWidth = Math.Max(1, monitorInfo.Work.Right - monitorInfo.Work.Left - 1);
-        int maxHeight = Math.Max(1, monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1);
-        bounds.MaxSize.X = maxWidth;
-        bounds.MaxSize.Y = maxHeight;
-        bounds.MaxTrackSize.X = maxWidth;
-        bounds.MaxTrackSize.Y = maxHeight;
-
-        // WPF minimums are in DIPs. Convert using the HWND's current monitor DPI,
-        // then clamp them so a high scale factor cannot force the window off-screen.
-        uint dpi = GetDpiForWindow(hwnd);
-        double scale = dpi == 0 ? 1d : dpi / 96d;
-        int minWidth = (int)Math.Ceiling(MinWidth * scale);
-        int minHeight = (int)Math.Ceiling(MinHeight * scale);
-        bounds.MinTrackSize.X = Math.Min(maxWidth, Math.Max(bounds.MinTrackSize.X, minWidth));
-        bounds.MinTrackSize.Y = Math.Min(maxHeight, Math.Max(bounds.MinTrackSize.Y, minHeight));
-        Marshal.StructureToPtr(bounds, lParam, false);
-        handled = true;
-        return IntPtr.Zero;
+        throw new TimeoutException("WinUI did not render route: " + route);
     }
 
-    private void UpdateWindowMinimumSizeForMonitor()
+    private async Task CaptureAsync(string path)
     {
-        if (_updatingWindowMinimum) return;
-        IntPtr hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd == IntPtr.Zero) return;
-        IntPtr monitor = MonitorFromWindow(hwnd, 2); // MONITOR_DEFAULTTONEAREST
-        if (monitor == IntPtr.Zero) return;
-        var monitorInfo = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (!GetMonitorInfo(monitor, ref monitorInfo)) return;
+        var bitmap = new RenderTargetBitmap();
+        await bitmap.RenderAsync(RootLayout);
+        var pixels = await bitmap.GetPixelsAsync();
+        CryptographicBuffer.CopyToByteArray(pixels, out byte[] bytes);
+        using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite);
+        using var stream = file.AsRandomAccessStream();
+        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+            (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, bytes);
+        await encoder.FlushAsync();
+    }
 
-        uint dpi = GetDpiForWindow(hwnd);
-        double scale = dpi == 0 ? 1d : dpi / 96d;
-        double availableWidth = Math.Max(1, monitorInfo.Work.Right - monitorInfo.Work.Left - 1) / scale;
-        double availableHeight = Math.Max(1, monitorInfo.Work.Bottom - monitorInfo.Work.Top - 1) / scale;
-        double minWidth = Math.Min(800, availableWidth);
-        double minHeight = Math.Min(680, availableHeight);
-        if (Math.Abs(MinWidth - minWidth) < 0.01 && Math.Abs(MinHeight - minHeight) < 0.01) return;
-
-        _updatingWindowMinimum = true;
-        try
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
         {
-            MinWidth = minWidth;
-            MinHeight = minHeight;
-        }
-        finally { _updatingWindowMinimum = false; }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint { public int X; public int Y; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MinMaxInfo
-    {
-        public NativePoint Reserved;
-        public NativePoint MaxSize;
-        public NativePoint MaxPosition;
-        public NativePoint MinTrackSize;
-        public NativePoint MaxTrackSize;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MonitorInfo
-    {
-        public int Size;
-        public NativeRect Monitor;
-        public NativeRect Work;
-        public uint Flags;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
-
-    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetDpiForWindow(IntPtr hwnd);
-
-    private void UpdateTitleBarTheme()
-    {
-        if (new WindowInteropHelper(this).Handle == IntPtr.Zero) return;
-        var dark = ViewModel.Theme == "Dark" ? 1 : 0;
-        DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int));
-        var roundedCorners = 2; // DWMWCP_ROUND в Windows 11.
-        DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 33, ref roundedCorners, sizeof(int));
-    }
-
-    private void RootTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (e.Source != RootTabs || !SystemParameters.ClientAreaAnimation) return;
-        Dispatcher.BeginInvoke(() =>
-        {
-            if (RootTabs.Template.FindName("PageContent", RootTabs) is not ContentPresenter page) return;
-            page.RenderTransform = new TranslateTransform(0, 8);
-            page.BeginAnimation(OpacityProperty,
-                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(170)) { EasingFunction = new QuadraticEase() });
-            ((TranslateTransform)page.RenderTransform).BeginAnimation(TranslateTransform.YProperty,
-                new DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(170)) { EasingFunction = new QuadraticEase() });
-        });
-    }
-
-    private void RootTabs_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        if (FindParent<ComboBox>(e.OriginalSource as DependencyObject) is not { IsDropDownOpen: false } combo)
-            return;
-
-        // Закрытый список сохраняет выбор; прокручивается окружающая страница.
-        e.Handled = true;
-        if (FindParent<ScrollViewer>(VisualTreeHelper.GetParent(combo)) is { } scroller)
-        {
-            scroller.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
-            {
-                RoutedEvent = MouseWheelEvent,
-                Source = scroller
-            });
+            var child = VisualTreeHelper.GetChild(root, index);
+            yield return child;
+            foreach (var descendant in Descendants(child)) yield return descendant;
         }
     }
 
-    private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject
-    {
-        for (var node = child; node is not null;
-             node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
-            if (node is T result) return result;
-        return null;
-    }
-
-    protected override void OnClosed(EventArgs e)
-    {
-        _windowSource?.RemoveHook(WindowMessageHook);
-        _windowSource = null;
-        DisposeController();
-        ViewModel.PropertyChanged -= ViewModelPropertyChanged;
-        _trayIcon.Visible = false;
-        _trayIcon.Icon?.Dispose();
-        _trayIcon.Dispose();
-        _trayMenu.Dispose();
-        ViewModel.Dispose();
-        base.OnClosed(e);
-    }
-
-    private void OpenScreen_Click(object sender, RoutedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm) vm.SelectedDisplay = vm.OverviewDisplay;
-        RootTabs.SelectedIndex = 1;
-    }
-    private void OpenGames_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedIndex = 2;
-    private void OpenProfiles_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedIndex = 3;
-    private void OpenAttention_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedIndex = 4;
-    private void OpenSettings_Click(object sender, RoutedEventArgs e) => RootTabs.SelectedIndex = 5;
-
-    private void HeroCard_Click(object sender, MouseButtonEventArgs e)
-    {
-        if (CameFromButton(e.OriginalSource, sender)) return;
-        RootTabs.SelectedIndex = 2;
-        e.Handled = true;
-    }
-
-    private void HeroCard_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key is not (Key.Enter or Key.Space) || CameFromButton(e.OriginalSource, sender)) return;
-        RootTabs.SelectedIndex = 2;
-        e.Handled = true;
-    }
-
-    private static bool CameFromButton(object? source, object container)
-    {
-        for (DependencyObject? node = source as DependencyObject; node is not null && node != container;
-             node = node is Visual ? VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
-            if (node is ButtonBase) return true;
-        return false;
-    }
-
-    private void AttentionAction_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { DataContext: AttentionItem item }) return;
-        if (item.Game is not null) ViewModel.SelectedGame = item.Game;
-        RootTabs.SelectedIndex = item.PageIndex;
-    }
-
-    private void DefaultDisplay_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { SelectedItem: ModeOption<string> option })
-            vm.DefaultDisplayId = option.Value;
-    }
-
-    private void GameDisplay_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ModeOption<string> option })
-            game.Model.DisplayId = option.Value;
-    }
-
-    private void GameProfileMode_Click(object sender, RoutedEventArgs e)
-    {
-        if (DataContext is MainViewModel { CanEdit: true } &&
-            sender is Button { DataContext: GameEntryViewModel game, Tag: string mode })
-            game.AutoSwitchProfile = mode == "Auto";
-    }
-
-    private void GameDisplayProfileRow_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm && !vm.IsUpdatingDisplayOptions &&
-            sender is ComboBox { DataContext: DisplayProfileAssignmentRow row, SelectedItem: ProfileOption option })
-            vm.SetDisplayProfileAssignment(row.Game, row.DisplayId,
-                option.Id == Guid.Empty ? null : option.Id);
-    }
-
-    private void Fraction_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (DataContext is MainViewModel vm && !vm.IsUpdatingFpsOptions &&
-            sender is ComboBox { SelectedItem: ModeOption<int> option } && vm.SelectedProfile is { } profile)
-            profile.FpsDivisor = option.Value;
-    }
-
-    private void GameProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (sender is ComboBox { DataContext: GameEntryViewModel game, SelectedItem: ProfileOption option })
-            game.Model.ProfileId = option.Id == Guid.Empty ? null : option.Id;
-    }
-
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
 }
+
+public sealed record RouteRequest(MainWindow Owner, string Route, Guid? ItemId);

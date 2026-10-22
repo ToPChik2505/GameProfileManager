@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/GameProfileManager.Engine/GameProfileManager.Engine.csproj" />
     <Project Path="src/GameProfileManager/GameProfileManager.csproj" />
   </Folder>
   <Folder Name="/tests/">
