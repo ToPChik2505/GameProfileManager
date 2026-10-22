@@ -11,11 +11,13 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Windowing;
+using Microsoft.UI.Input;
 using Microsoft.Windows.Storage.Pickers;
 using Windows.Graphics;
 using Windows.Graphics.Imaging;
 using Windows.Security.Cryptography;
 using Windows.System;
+using Windows.UI.Core;
 
 namespace GameProfileManager;
 
@@ -68,12 +70,8 @@ public sealed partial class MainWindow : Window
         };
         _controllerInput.Start();
         _viewModel.PickLocalFileAsync = PickLocalFileAsync;
-        RootLayout.KeyDown += OnRootKeyDown;
-        RootLayout.PointerPressed += (_, _) =>
-        {
-            _controllerMode = false;
-            ControllerLegend.Visibility = Visibility.Collapsed;
-        };
+        RootLayout.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), true);
+        RootLayout.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         Navigate("overview");
     }
 
@@ -192,28 +190,65 @@ public sealed partial class MainWindow : Window
 
     public async void GoBack()
     {
+        if (!IsInternalRoute(_route)) return;
         if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync()) return;
         if (ContentFrame.CanGoBack) ContentFrame.GoBack();
         else
         {
-            _route = "overview";
-            ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, "overview", null));
+            string parent = _route switch
+            {
+                "import" or "game" => "games",
+                "profile-new" or "profile-edit" => "profiles",
+                "settings-controller" or "settings-backup" => "settings",
+                _ when _route.StartsWith("game-", StringComparison.Ordinal) => "game",
+                _ => "overview"
+            };
+            ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, parent,
+                parent == "game" ? _viewModel.SelectedGame?.Id : null));
         }
     }
+
+    private static bool IsInternalRoute(string route) => route is not
+        ("overview" or "games" or "profiles" or "monitors" or "diagnostics" or "settings");
 
     internal void SetCurrentRoute(string route)
     {
         _route = route;
-        NavView.IsBackButtonVisible = route is "overview" or "games" or "profiles" or "monitors"
-            or "diagnostics" or "settings"
-            ? NavigationViewBackButtonVisible.Collapsed : NavigationViewBackButtonVisible.Visible;
+        NavView.IsBackButtonVisible = NavigationViewBackButtonVisible.Visible;
+        NavView.IsBackEnabled = IsInternalRoute(route);
     }
 
     private void OnRootKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
     {
         if (_controllerConnected && args.Key.ToString().StartsWith("Gamepad", StringComparison.Ordinal))
         { args.Handled = true; return; }
-        if (args.Key == VirtualKey.Escape) { GoBack(); args.Handled = true; }
+        bool altDown = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu)
+            & CoreVirtualKeyStates.Down) != 0;
+        bool textFocused = FocusManager.GetFocusedElement(RootLayout.XamlRoot) is TextBox
+            or PasswordBox or RichEditBox or AutoSuggestBox;
+        if (HandleBackShortcut(args.Key, altDown, textFocused)) args.Handled = true;
+    }
+
+    private bool HandleBackShortcut(VirtualKey key, bool altDown, bool textFocused)
+    {
+        if (!IsInternalRoute(_route) || !(key is VirtualKey.Escape or VirtualKey.GoBack
+            || key == VirtualKey.Left && altDown || key == VirtualKey.Back && !textFocused)) return false;
+        GoBack();
+        return true;
+    }
+
+    private void OnRootPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        _controllerMode = false;
+        ControllerLegend.Visibility = Visibility.Collapsed;
+        if (HandleMouseBack(args.GetCurrentPoint(RootLayout).Properties.IsXButton1Pressed)) args.Handled = true;
+    }
+
+    private bool HandleMouseBack(bool xButtonPressed)
+    {
+        if (!xButtonPressed || !IsInternalRoute(_route)) return false;
+        GoBack();
+        return true;
     }
 
     private void HandleControllerAction(ControllerAction action)
@@ -396,16 +431,40 @@ public sealed partial class MainWindow : Window
         if (!shellChromeReady) throw new InvalidOperationException("WinUI shell chrome or RTSS action is missing.");
         bool gameColumnsLabeled = _viewModel.GameCards.FirstOrDefault()?.FpsListDisplay.Contains("FPS") == true;
         if (!gameColumnsLabeled) throw new InvalidOperationException("Game FPS column lacks a unit.");
+        Navigate("settings");
+        await WaitForRouteAsync("settings");
+        bool rootBackDisabled = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible
+            && !NavView.IsBackEnabled && !HandleBackShortcut(VirtualKey.GoBack, false, false)
+            && !HandleMouseBack(true);
+        Navigate("settings-controller");
+        await WaitForRouteAsync("settings-controller");
+        bool controllerBackEnabled = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible
+            && NavView.IsBackEnabled;
+        NavView_BackRequested(NavView, null!);
+        await WaitForRouteAsync("settings");
+        bool controllerReturnWorks = rootBackDisabled && controllerBackEnabled
+            && CurrentRoute == "settings" && !NavView.IsBackEnabled;
+        if (!controllerReturnWorks) throw new InvalidOperationException("Controller settings back navigation failed.");
+        Navigate("games");
+        await WaitForRouteAsync("games");
         Navigate("import");
         await WaitForRouteAsync("import");
-        bool importBackVisible = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible;
-        var importBack = Descendants(ContentFrame).OfType<Button>().FirstOrDefault(button =>
-            button.Content is "Вернуться к играм");
-        if (importBack?.Tag is not Action returnToGames) throw new InvalidOperationException("Import return action is missing.");
-        returnToGames();
+        bool importBackVisible = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible
+            && NavView.IsBackEnabled && !Descendants(ContentFrame).OfType<Button>()
+                .Any(button => button.Content is "Вернуться к играм");
+        bool keyboardBackHandled = HandleBackShortcut(VirtualKey.GoBack, false, false);
         await WaitForRouteAsync("games");
-        bool importReturnWorks = importBackVisible && CurrentRoute == "games"
-            && NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Collapsed;
+        Navigate("import");
+        await WaitForRouteAsync("import");
+        bool mouseBackHandled = HandleMouseBack(true);
+        await WaitForRouteAsync("games");
+        Navigate("import");
+        await WaitForRouteAsync("import");
+        NavView_BackRequested(NavView, null!);
+        await WaitForRouteAsync("games");
+        bool importReturnWorks = importBackVisible && keyboardBackHandled && mouseBackHandled
+            && CurrentRoute == "games" && NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible
+            && !NavView.IsBackEnabled;
         if (!importReturnWorks) throw new InvalidOperationException("Import return navigation failed.");
         var actualSizes = new List<string>();
         bool firstSize = true;
@@ -496,7 +555,7 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Navigation attempted external writes: " + SmokeAudit.WriteAttempts);
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
             JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
-                shellChromeReady, gameColumnsLabeled, loaderShownAndHidden, importReturnWorks,
+                shellChromeReady, gameColumnsLabeled, loaderShownAndHidden, importReturnWorks, controllerReturnWorks,
                 monitorAppearsImmediately, exeSelectionWorks, restoreClearsProfile,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,

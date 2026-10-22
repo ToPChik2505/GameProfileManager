@@ -92,12 +92,9 @@ internal static partial class PageFactory
             ItemsSource = vm.GamesView,
             ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Application.Current.Resources["GameRowTemplate"],
             SelectionMode = ListViewSelectionMode.Single,
+            ItemContainerStyle = (Style)Microsoft.UI.Xaml.Application.Current.Resources["GameListItemStyle"],
             MinHeight = 180
         };
-        var gameItemStyle = new Style(typeof(ListViewItem));
-        gameItemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-        gameItemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
-        list.ItemContainerStyle = gameItemStyle;
         list.SelectionChanged += (_, _) =>
         {
             if (list.SelectedItem is not GameProfileManager.Presentation.GameEntryViewModel card) return;
@@ -347,7 +344,6 @@ internal static partial class PageFactory
     {
         var vm = Vm(request);
         return Shell("Импорт игр", "Поиск установленных игр без их запуска",
-            Buttons(ActionButton("Вернуться к играм", () => request.Owner.Navigate("games"))),
             Message("Существующий импорт", "Импорт выполняется для найденных игр целиком. Выбор отдельных записей из макета пока недоступен."),
             ResponsivePair(Card(Column(Strong("Steam"), Secondary("Найти установленные игры Steam и добавить их в библиотеку."),
                     ActionButton("Импортировать Steam", () => vm.ImportSteamCommand.Execute(null), true))),

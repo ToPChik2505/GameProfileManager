@@ -25,10 +25,35 @@
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCautionBrush}" />
     </Style>
+    <Style x:Key="GameListItemStyle" TargetType="ListViewItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0,0,0,8" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+      <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ListViewItem">
+            <ListViewItemPresenter Content="{TemplateBinding Content}"
+                                   ContentTemplate="{TemplateBinding ContentTemplate}"
+                                   ContentTransitions="{TemplateBinding ContentTransitions}"
+                                   ContentMargin="{TemplateBinding Padding}"
+                                   Background="{TemplateBinding Background}"
+                                   BorderBrush="{TemplateBinding BorderBrush}"
+                                   BorderThickness="{TemplateBinding BorderThickness}"
+                                   CornerRadius="{TemplateBinding CornerRadius}"
+                                   HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                   VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                   PointerOverBackground="{ThemeResource ControlFillColorSecondaryBrush}"
+                                   SelectedBackground="{ThemeResource ControlFillColorSecondaryBrush}"
+                                   SelectedPointerOverBackground="{ThemeResource ControlFillColorTertiaryBrush}" />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <DataTemplate x:Key="GameRowTemplate">
-      <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-              BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-              CornerRadius="8" Margin="0,0,0,8">
       <Grid Padding="12,10" ColumnSpacing="16" MinHeight="68">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="48"/>
@@ -62,7 +87,6 @@
                      Style="{ThemeResource CaptionTextBlockStyle}" />
         </Border>
       </Grid>
-      </Border>
     </DataTemplate>
     <DataTemplate x:Key="ProfileRowTemplate">
       <Grid Padding="12,10" ColumnSpacing="12" MinHeight="62">
