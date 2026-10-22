@@ -160,7 +160,9 @@ public sealed class GameEntry : Observable
     public string? EpicAppName { get => _epicAppName; set => Set(ref _epicAppName, value); }
     public string? InstallDirectory { get => _installDirectory; set => Set(ref _installDirectory, value); }
     public string DisplayId { get => _displayId; set => Set(ref _displayId, value ?? ""); }
-    public DateTimeOffset? LastApplied { get; set; }
+    private DateTimeOffset? _lastApplied;
+    public DateTimeOffset? LastApplied { get => _lastApplied; set { if (Set(ref _lastApplied, value)) Changed(nameof(LastAppliedDisplay)); } }
+    [JsonIgnore] public string LastAppliedDisplay => LastApplied?.ToLocalTime().ToString("g") ?? "Ещё не применялось";
     [JsonIgnore] public string FpsDisplay { get; set; } = "—";
     [JsonIgnore] public string ProfileDisplay { get; set; } = "Без профиля";
     [JsonIgnore] public string VrrDisplay { get; set; } = "—";

@@ -41,6 +41,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private GameEntryViewModel? _selectedGameCard;
     private PerformanceProfile? _selectedProfile;
     private bool _busy;
+    private bool _updatingGameAssignment;
     private bool _isApplyingAll;
     private bool _isActivityVisible;
     private string _syncProgressMessage = "";
@@ -373,7 +374,18 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public string NvidiaStatus => _sync.NvidiaStatus ?? "Проверка...";
     public string RtssStatus => _sync.RtssStatus ?? "Проверка...";
     public bool RtssWarningVisible => _sync.RtssStatus is not null && !_sync.RtssReady;
-    public string RtssWarning => _sync.RtssStatus + ". Ограничение FPS сейчас недоступно.";
+    public string RtssWarning
+    {
+        get
+        {
+            string status = _sync.RtssStatus ?? "";
+            if (status.StartsWith("RTSS закрыт: ", StringComparison.Ordinal))
+                status = "Папка: " + status["RTSS закрыт: ".Length..];
+            else if (status.StartsWith("RTSS недоступен: ", StringComparison.Ordinal))
+                status = status["RTSS недоступен: ".Length..];
+            return status + ". Ограничение FPS сейчас недоступно.";
+        }
+    }
     public string LastSync => _state.LastSync?.ToLocalTime().ToString("g") ?? "Никогда";
     public int ErrorCount => AttentionItems.Count;
     public int GameCount => Games.Count;
@@ -385,7 +397,6 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ICommand DuplicateProfileCommand { get; }
     public ICommand RemoveProfileCommand { get; }
     public ICommand AddGameCommand { get; }
-    public ICommand RemoveGameCommand { get; }
     public ICommand ChooseExeCommand { get; }
     public Func<string, string, string?, Task<string?>>? PickLocalFileAsync { get; set; }
     public ICommand ImportSteamCommand { get; }
@@ -466,7 +477,6 @@ public sealed partial class MainViewModel : Observable, IDisposable
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
         }, () => !_busy);
         AddGameCommand = new Command(() => _ = AddGameAsync(), () => !_busy);
-        RemoveGameCommand = new Command(() => _ = RemoveSelectedGameAsync(), () => !_busy);
         ChooseExeCommand = new Command(() => _ = ChooseExeAsync(), () => !_busy);
         ImportSteamCommand = new Command(() => _ = ImportSteamAsync(), () => !_busy);
         ImportEpicCommand = new Command(() => _ = ImportEpicAsync(), () => !_busy);
@@ -485,13 +495,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }, () => !_busy);
         VerifyCommand = new Command(() => _ = RunSyncAsync((service, state) => service.CheckSaved(state),
             () => Notice = "Проверка сохранённых параметров завершена.", "Проверяем сохранённые параметры…"), () => !_busy);
-        RestoreCommand = new Command(() =>
-        {
-            if (SelectedGame is not { } game) { Notice = "Выберите игру."; return; }
-            _ = RunSyncAsync((service, state) => service.Restore(state, state.Games.Single(item => item.Id == game.Id)),
-                () => Notice = game.Status == ApplyStatus.Error ? game.Detail : "Исходные параметры восстановлены.",
-                "Восстанавливаем исходные параметры…");
-        }, () => !_busy);
+        RestoreCommand = new Command(() => _ = RestoreSelectedGameAsync(), () => !_busy);
         BackupCommand = new Command(() => _ = RunUserActionAsync("Создаём резервную копию…", async () =>
         {
             var snapshot = AppStateSnapshot.Capture(_state);
@@ -547,9 +551,11 @@ public sealed partial class MainViewModel : Observable, IDisposable
             bool running = await Task.Run(() => RtssClient.ProcessIsRunning);
             if (_busy || _disposed || running == _lastRtssProcessState) return;
             bool completed = await RunSyncAsync((service, state) => { service.CheckIntegrations(state); service.CheckSaved(state); },
-                () => Notice = _sync.RtssReady
-                    ? "RTSS снова запущен. Проверьте профили и при необходимости примените их."
-                    : "RTSS закрыт. Лимит FPS сейчас не действует.");
+                () =>
+                {
+                    if (_sync.RtssReady)
+                        Notice = "RTSS снова запущен. Проверьте профили и при необходимости примените их.";
+                });
             if (completed) _lastRtssProcessState = running;
         }
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка проверки RTSS: " + ex.Message; }
@@ -586,7 +592,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private void RaiseCommandState()
     {
         foreach (var command in new ICommand[] { AddProfileCommand, DuplicateProfileCommand, RemoveProfileCommand,
-                     AddGameCommand, RemoveGameCommand, ChooseExeCommand, ImportSteamCommand, ImportEpicCommand,
+                     AddGameCommand, ChooseExeCommand, ImportSteamCommand, ImportEpicCommand,
                      ApplyCommand, ApplyGameCommand, VerifyCommand, RestoreCommand, BackupCommand,
                      BrowseRtssCommand, StartRtssCommand, DiagnosticsCommand })
             if (command is IRefreshableCommand refreshable) refreshable.Refresh();
@@ -738,22 +744,6 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
     }
 
-    private async Task RemoveSelectedGameAsync()
-    {
-        if (_busy || SelectedGame is not { } game) return;
-        if (SettingBackupOwnership.HasForGame(_state, game))
-        {
-            bool completed = await RunSyncAsync((service, state) =>
-                service.Restore(state, state.Games.Single(item => item.Id == game.Id)));
-            if (!completed || SettingBackupOwnership.HasForGame(_state, game))
-            { Notice = game.Detail; return; }
-        }
-        Unhook(game);
-        Games.Remove(game);
-        if (SelectedGame == game) SelectedGame = null;
-        SaveOnly();
-        UpdateSummary();
-    }
     private void UpdateSummary()
     {
         RebuildAttentionItems();

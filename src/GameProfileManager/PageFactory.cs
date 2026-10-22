@@ -73,6 +73,20 @@ internal static partial class PageFactory
         Text = value, Style = Style("BodyStrongTextBlockStyle"), TextWrapping = TextWrapping.Wrap
     };
 
+    private static TextBlock Strong(GameProfileManager.Core.GameEntry game, string property)
+    {
+        var text = Strong("");
+        text.SetBinding(TextBlock.TextProperty, new Binding { Source = game, Path = new PropertyPath(property) });
+        return text;
+    }
+
+    private static TextBlock Secondary(GameProfileManager.Core.GameEntry game, string property)
+    {
+        var text = Secondary("");
+        text.SetBinding(TextBlock.TextProperty, new Binding { Source = game, Path = new PropertyPath(property) });
+        return text;
+    }
+
     private static Border Card(UIElement content) => new()
     {
         Background = Brush("CardBackgroundFillColorDefaultBrush"),
@@ -214,8 +228,13 @@ internal static partial class PageFactory
     private static UIElement Message(string title, string detail, InfoBarSeverity severity = InfoBarSeverity.Informational)
         => new InfoBar { Title = title, Message = detail, Severity = severity, IsOpen = true, IsClosable = false };
 
-    private static GameEntry? Game(RouteRequest request) => Vm(request).Games.FirstOrDefault(item => item.Id == request.ItemId)
-        ?? Vm(request).SelectedGame;
+    private static GameEntry? Game(RouteRequest request)
+    {
+        var vm = Vm(request);
+        var game = vm.Games.FirstOrDefault(item => item.Id == request.ItemId) ?? vm.SelectedGame;
+        if (game is not null) vm.SelectedGame = game;
+        return game;
+    }
 
     private static UIElement GameTabs(RouteRequest request, GameEntry game)
     {
@@ -253,10 +272,10 @@ internal static partial class PageFactory
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.Children.Add(GameIcon(card, 56));
-        var identity = Column(Strong(game.Name), Secondary(game.ExeDisplay));
+        var identity = Column(Strong(game, nameof(GameEntry.Name)), Secondary(game, nameof(GameEntry.ExeDisplay)));
         Grid.SetColumn(identity, 1);
         row.Children.Add(identity);
-        var state = Column(Strong(game.StatusLabel), Secondary(game.ProfileDisplay));
+        var state = Column(Strong(game, nameof(GameEntry.StatusLabel)), Secondary(game, nameof(GameEntry.ProfileDisplay)));
         state.HorizontalAlignment = HorizontalAlignment.Right;
         Grid.SetColumn(state, 2);
         row.Children.Add(state);

@@ -14,7 +14,7 @@
     </TitleBar>
     <NavigationView x:Name="NavView" Grid.Row="1" PaneDisplayMode="Auto"
                     OpenPaneLength="248" CompactPaneLength="64"
-                    IsBackButtonVisible="Visible" IsSettingsVisible="True"
+                    IsBackButtonVisible="Collapsed" IsSettingsVisible="True"
                     SelectionChanged="NavView_SelectionChanged"
                     BackRequested="NavView_BackRequested">
       <NavigationView.MenuItems>

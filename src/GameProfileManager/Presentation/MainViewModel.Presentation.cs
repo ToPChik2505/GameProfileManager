@@ -68,7 +68,7 @@ public sealed partial class MainViewModel
         if (e.PropertyName == nameof(GameEntry.DisplayProfileTargetId))
         {
             card.UpdateDisplayAssignmentRows(_state, _displays.ToArray());
-            SaveOnly(false);
+            if (!_updatingGameAssignment) SaveOnly(false);
             return;
         }
         if (e.PropertyName is nameof(GameEntry.Name) or nameof(GameEntry.ProfileId) or
@@ -89,9 +89,12 @@ public sealed partial class MainViewModel
                     : "Профиль не выбран: параметры не применяются"
                 : "Назначение изменено";
             RefreshDisplays();
-            if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId) or
-                nameof(GameEntry.AutoSwitchProfile) or nameof(GameEntry.DisplayProfilePolicy)) SaveOnly(false);
-            else ScheduleSave();
+            if (!_updatingGameAssignment)
+            {
+                if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId) or
+                    nameof(GameEntry.AutoSwitchProfile) or nameof(GameEntry.DisplayProfilePolicy)) SaveOnly(false);
+                else ScheduleSave();
+            }
         }
         };
         _gameHandlers.Add(game, handler);

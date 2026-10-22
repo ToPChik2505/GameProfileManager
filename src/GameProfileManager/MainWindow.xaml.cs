@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Windowing;
+using Microsoft.Windows.Storage.Pickers;
 using Windows.Graphics;
 using Windows.Graphics.Imaging;
 using Windows.Security.Cryptography;
@@ -154,6 +155,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdateRtssBar()
     {
+        RtssBar.Title = _viewModel.RtssStatus?.StartsWith("RTSS недоступен", StringComparison.Ordinal) == true
+            ? "RTSS недоступен" : "RTSS закрыт";
         RtssBar.Message = _viewModel.RtssWarning;
         RtssBar.IsOpen = _viewModel.RtssWarningVisible;
         StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
@@ -198,7 +201,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    internal void SetCurrentRoute(string route) => _route = route;
+    internal void SetCurrentRoute(string route)
+    {
+        _route = route;
+        NavView.IsBackButtonVisible = route is "overview" or "games" or "profiles" or "monitors"
+            or "diagnostics" or "settings"
+            ? NavigationViewBackButtonVisible.Collapsed : NavigationViewBackButtonVisible.Visible;
+    }
 
     private void OnRootKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs args)
     {
@@ -287,6 +296,16 @@ public sealed partial class MainWindow : Window
 
     private async Task<string?> PickLocalFileAsync(string title, string pattern, string? initialDirectory)
     {
+        if (!_controllerMode || !_controllerConnected)
+        {
+            var systemPicker = new FileOpenPicker(AppWindow.Id)
+            {
+                CommitButtonText = "Выбрать"
+            };
+            systemPicker.FileTypeFilter.Add(pattern == "*.exe" ? ".exe" : ".dll");
+            var result = await systemPicker.PickSingleFileAsync();
+            return result?.Path;
+        }
         var picker = new ControllerFilePicker(this, title, pattern, initialDirectory);
         _activePicker = picker;
         try { return await picker.ShowAsync(); }
@@ -377,6 +396,17 @@ public sealed partial class MainWindow : Window
         if (!shellChromeReady) throw new InvalidOperationException("WinUI shell chrome or RTSS action is missing.");
         bool gameColumnsLabeled = _viewModel.GameCards.FirstOrDefault()?.FpsListDisplay.Contains("FPS") == true;
         if (!gameColumnsLabeled) throw new InvalidOperationException("Game FPS column lacks a unit.");
+        Navigate("import");
+        await WaitForRouteAsync("import");
+        bool importBackVisible = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible;
+        var importBack = Descendants(ContentFrame).OfType<Button>().FirstOrDefault(button =>
+            button.Content is "Вернуться к играм");
+        if (importBack?.Tag is not Action returnToGames) throw new InvalidOperationException("Import return action is missing.");
+        returnToGames();
+        await WaitForRouteAsync("games");
+        bool importReturnWorks = importBackVisible && CurrentRoute == "games"
+            && NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Collapsed;
+        if (!importReturnWorks) throw new InvalidOperationException("Import return navigation failed.");
         var actualSizes = new List<string>();
         bool firstSize = true;
         foreach (var size in new[] { (1280, 720), (1024, 768), (960, 560) })
@@ -398,9 +428,41 @@ public sealed partial class MainWindow : Window
             await WaitForRouteAsync(route);
             await CaptureAsync(Path.Combine(screenshotDirectory, $"Light-{route}-960x560.png"));
         }
+        var gameForActions = _viewModel.Games.First();
+        Navigate("game", gameForActions.Id);
+        await WaitForRouteAsync("game");
+        var monitorToggle = Descendants(ContentFrame).OfType<ToggleSwitch>().First(toggle =>
+            toggle.Header is "Профиль по монитору");
+        var assignmentPanel = Descendants(ContentFrame).OfType<StackPanel>().First(panel =>
+            panel.Name == "DisplayAssignments");
+        bool monitorInitiallyHidden = assignmentPanel.Visibility == Visibility.Collapsed;
+        monitorToggle.IsOn = true;
+        bool monitorAppearsImmediately = assignmentPanel.Visibility == Visibility.Visible;
+        await CaptureAsync(Path.Combine(screenshotDirectory, "Light-game-monitor-toggle.png"));
+        monitorToggle.IsOn = false;
+        string alternativeExe = Path.Combine(outputDirectory, "UiAlternative.exe");
+        File.Copy(gameForActions.ExePath, alternativeExe);
+        _viewModel.PickLocalFileAsync = (_, _, _) => Task.FromResult<string?>(alternativeExe);
+        _viewModel.ChooseExeCommand.Execute(null);
+        await Task.Delay(100);
+        bool exeSelectionWorks = gameForActions.ExePath == alternativeExe &&
+            Descendants(ContentFrame).OfType<TextBlock>().Any(text => text.Text == alternativeExe);
+        _viewModel.RestoreCommand.Execute(null);
+        await Task.Delay(100);
+        var smokeStore = new GameProfileManager.Infrastructure.SqliteStateStore(Path.Combine(outputDirectory, "state"));
+        var persistedGame = smokeStore.Load().Games.Single(item => item.Id == gameForActions.Id);
+        bool restoreClearsProfile = gameForActions.ProfileId is null && !gameForActions.AutoSwitchProfile
+            && gameForActions.DisplayProfileAssignments.Count == 0 &&
+            _viewModel.GameCards.First().ProfileDisplay == "Без профиля" &&
+            Descendants(ContentFrame).OfType<ComboBox>().First().SelectedItem is ComboBoxItem
+                { Tag: Guid selectedProfileId } && selectedProfileId == Guid.Empty &&
+            persistedGame.ProfileId is null && !persistedGame.AutoSwitchProfile;
+        if (!monitorInitiallyHidden || !monitorAppearsImmediately || !exeSelectionWorks || !restoreClearsProfile)
+            throw new InvalidOperationException("Game assignment, EXE selection or restore UI failed.");
+        Navigate("profile-new");
+        await WaitForRouteAsync("profile-new");
         var draftName = Descendants(ContentFrame).OfType<TextBox>().First();
         draftName.Text = "UI Smoke профиль";
-        var smokeStore = new GameProfileManager.Infrastructure.SqliteStateStore(Path.Combine(outputDirectory, "state"));
         bool draftIsolated = !smokeStore.Load().Profiles.Any(profile => profile.Name == draftName.Text);
         var saveButton = Descendants(ContentFrame).OfType<Button>()
             .First(button => button.Content is string label && label == "Сохранить профиль");
@@ -434,7 +496,8 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Navigation attempted external writes: " + SmokeAudit.WriteAttempts);
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
             JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
-                shellChromeReady, gameColumnsLabeled, loaderShownAndHidden,
+                shellChromeReady, gameColumnsLabeled, loaderShownAndHidden, importReturnWorks,
+                monitorAppearsImmediately, exeSelectionWorks, restoreClearsProfile,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,
                 responsiveWidth = Descendants(ContentFrame).OfType<Grid>()

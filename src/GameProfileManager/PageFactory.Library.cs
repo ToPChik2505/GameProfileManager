@@ -88,18 +88,24 @@ internal static partial class PageFactory
         search.TextChanged += (_, _) => vm.Search = search.Text;
         var list = new ListView
         {
+            Name = "GamesList",
             ItemsSource = vm.GamesView,
             ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Application.Current.Resources["GameRowTemplate"],
             SelectionMode = ListViewSelectionMode.Single,
             MinHeight = 180
         };
+        var gameItemStyle = new Style(typeof(ListViewItem));
+        gameItemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        gameItemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch));
+        list.ItemContainerStyle = gameItemStyle;
         list.SelectionChanged += (_, _) =>
         {
             if (list.SelectedItem is not GameProfileManager.Presentation.GameEntryViewModel card) return;
             vm.SelectedGameCard = card;
             request.Owner.Navigate("game", card.Id);
         };
-        var headers = new Grid { ColumnSpacing = 16, Padding = new Thickness(12, 0, 12, 0) };
+        var headers = new Grid { Name = "GameListHeaders", ColumnSpacing = 16,
+            Padding = new Thickness(12, 0, 12, 0) };
         headers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         headers.ColumnDefinitions.Add(new ColumnDefinition());
         headers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
@@ -116,11 +122,11 @@ internal static partial class PageFactory
             ResponsivePair(Field("Поиск", search), Field("Статус", Choice(
                 vm.StatusFilters.Select(item => new ModeOption<string>(item, item)), vm.StatusFilter,
                 value => vm.StatusFilter = value)), 2.5, 1),
+            Buttons(ActionButton("Добавить игру", () => vm.AddGameCommand.Execute(null), true),
+                ActionButton("Импорт Steam / Epic", () => request.Owner.Navigate("import"))),
             Strong($"Игр в библиотеке: {vm.GameCount}"),
             headers,
-            list,
-            Buttons(ActionButton("Добавить игру", () => vm.AddGameCommand.Execute(null), true),
-                ActionButton("Импорт Steam / Epic", () => request.Owner.Navigate("import"))));
+            list);
     }
 
     private static PageComposition GameGeneral(RouteRequest request)
@@ -133,50 +139,66 @@ internal static partial class PageFactory
         var profile = Choice(options, game.ProfileSelectionId, id => game.ProfileSelectionId = id);
         var displayOptions = vm.GameDisplayOptions.Select(option => new ModeOption<string>(option.Value, option.Label));
         var display = Choice(displayOptions, game.DisplayId, id => game.DisplayId = id);
+        var displayAssignments = Column(
+            Field("Правило выбора экрана", Choice(vm.DisplayProfilePolicies, game.DisplayProfilePolicy,
+                value => game.DisplayProfilePolicy = value)));
+        displayAssignments.Name = "DisplayAssignments";
+        foreach (var row in vm.Displays)
+        {
+            Guid selected = game.DisplayProfileAssignments.FirstOrDefault(item => item.DisplayId == row.Id)?.ProfileId ?? Guid.Empty;
+            displayAssignments.Children.Add(Field("Профиль: " + row.Name,
+                Choice(vm.ProfileOptions.Select(option => new ModeOption<Guid>(option.Id, option.AssignmentName)),
+                    selected, id => vm.SetDisplayProfileAssignment(game, row.Id, id == Guid.Empty ? null : id))));
+        }
+        if (vm.Displays.Count == 0) displayAssignments.Children.Add(Secondary("Мониторы пока не обнаружены."));
+        displayAssignments.Visibility = game.AutoSwitchProfile ? Visibility.Visible : Visibility.Collapsed;
+        var monitorToggle = Toggle("Профиль по монитору", game.AutoSwitchProfile, value =>
+        {
+            game.AutoSwitchProfile = value;
+            displayAssignments.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        });
         var assignment = Column(
             Field("Основной профиль", profile, "Изменение выбора сохраняет конфигурацию; внешнее применение выполняется отдельно."),
-            Toggle("Профиль по монитору", game.AutoSwitchProfile, value => game.AutoSwitchProfile = value),
-            Field("Правило выбора экрана", Choice(vm.DisplayProfilePolicies, game.DisplayProfilePolicy,
-                value => game.DisplayProfilePolicy = value)),
+            monitorToggle,
+            displayAssignments,
             Field("Экран для расчёта FPS", display));
-        if (game.AutoSwitchProfile)
+        System.ComponentModel.PropertyChangedEventHandler selectionChanged = (_, args) =>
         {
-            foreach (var row in vm.Displays)
+            if (args.PropertyName == nameof(GameEntry.ProfileId))
+                profile.SelectedItem = profile.Items.OfType<ComboBoxItem>().FirstOrDefault(item =>
+                    item.Tag is Guid id && id == game.ProfileSelectionId);
+            if (args.PropertyName == nameof(GameEntry.AutoSwitchProfile))
             {
-                Guid selected = game.DisplayProfileAssignments.FirstOrDefault(item => item.DisplayId == row.Id)?.ProfileId ?? Guid.Empty;
-                assignment.Children.Add(Field("Профиль: " + row.Name,
-                    Choice(vm.ProfileOptions.Select(option => new ModeOption<Guid>(option.Id, option.AssignmentName)),
-                        selected, id => vm.SetDisplayProfileAssignment(game, row.Id, id == Guid.Empty ? null : id))));
+                monitorToggle.IsOn = game.AutoSwitchProfile;
+                displayAssignments.Visibility = game.AutoSwitchProfile ? Visibility.Visible : Visibility.Collapsed;
             }
-        }
+        };
+        game.PropertyChanged += selectionChanged;
+        assignment.Unloaded += (_, _) => game.PropertyChanged -= selectionChanged;
+        var statusText = Strong(game, nameof(GameEntry.StatusLabel));
+        statusText.Style = Style("AccentMetricValueTextStyle");
         var actions = Buttons(
             ActionButton("Применить профиль к игре", () => vm.ApplyGameCommand.Execute(game), true),
             ActionButton("Выбрать EXE", () => vm.ChooseExeCommand.Execute(null)),
             ActionButton("Восстановить прежние параметры", async () =>
             {
                 if (await Confirm(request.Owner, "Восстановление оригиналов",
-                    "Вернуть сохранённые исходные значения RTSS и NVIDIA DRS для этого EXE?", "Восстановить"))
+                    "Снять профиль игры и восстановить исходные значения RTSS/NVIDIA, если они сохранены?", "Восстановить"))
                     vm.RestoreCommand.Execute(null);
-            }, enabled: vm.SelectedGameHasBackup));
-        var delete = ActionButton("Удалить игру", async () =>
-        {
-            if (await Confirm(request.Owner, "Удаление игры",
-                "Удалить игру из библиотеки? При наличии исходных значений они будут восстановлены.", "Удалить"))
-            { vm.RemoveGameCommand.Execute(null); request.Owner.Navigate("games"); }
-        }, destructive: true);
+            }));
         return Shell("Настройки игры", "Профиль и правила дисплеев",
             GameHeader(request, game), ResponsivePair(Card(assignment), Card(Column(
                 Strong("Текущее состояние"),
-                new TextBlock { Text = game.StatusLabel, Style = Style("AccentMetricValueTextStyle") },
-                Secondary(game.Detail),
+                statusText,
+                Secondary(game, nameof(GameEntry.Detail)),
                 new Border { Height = 1, Background = Brush("DividerStrokeColorDefaultBrush") },
-                DetailRow("Профиль", Strong(game.ProfileDisplay)),
-                DetailRow("Лимит FPS", Strong(game.FpsDisplay)),
-                DetailRow("Режим NVIDIA", Strong(game.VrrDisplay)),
-                DetailRow("V-Sync", Strong(game.VSyncDisplay)),
-                DetailRow("Лимитер RTSS", Strong(game.RtssLimiterDisplay)),
-                DetailRow("Применено", Strong(game.LastApplied?.ToLocalTime().ToString("g") ?? "Ещё не применялось"))))),
-            actions, delete);
+                DetailRow("Профиль", Strong(game, nameof(GameEntry.ProfileDisplay))),
+                DetailRow("Лимит FPS", Strong(game, nameof(GameEntry.FpsDisplay))),
+                DetailRow("Режим NVIDIA", Strong(game, nameof(GameEntry.VrrDisplay))),
+                DetailRow("V-Sync", Strong(game, nameof(GameEntry.VSyncDisplay))),
+                DetailRow("Лимитер RTSS", Strong(game, nameof(GameEntry.RtssLimiterDisplay))),
+                DetailRow("Применено", Strong(game, nameof(GameEntry.LastAppliedDisplay)))))),
+            actions);
     }
 
     private static PageComposition GameFps(RouteRequest request)
@@ -213,20 +235,20 @@ internal static partial class PageFactory
         return Shell("NVIDIA", "Параметры NVIDIA DRS для выбранного EXE",
             GameHeader(request, game),
             ResponsivePair(Card(Column(Strong("Режим монитора"),
-                    new TextBlock { Text = game.VrrDisplay, Style = Style("SubtitleTextBlockStyle") },
+                    Strong(game, nameof(GameEntry.VrrDisplay)),
                     Secondary("Выбранный режим сохраняется в профиле NVIDIA DRS этого EXE."))),
                 Card(Column(Strong("Вертикальная синхронизация"),
-                    new TextBlock { Text = game.VSyncDisplay, Style = Style("SubtitleTextBlockStyle") },
+                    Strong(game, nameof(GameEntry.VSyncDisplay)),
                     Secondary("Настройка применяется вместе с остальными параметрами профиля игры.")))),
-            Card(Column(Strong("Состояние игры"), DetailRow("Статус", Strong(game.StatusLabel)),
-                DetailRow("Профиль", Strong(game.ProfileDisplay)), Secondary(game.Detail))),
+            Card(Column(Strong("Состояние игры"), DetailRow("Статус", Strong(game, nameof(GameEntry.StatusLabel))),
+                DetailRow("Профиль", Strong(game, nameof(GameEntry.ProfileDisplay))), Secondary(game, nameof(GameEntry.Detail)))),
             Message("Проверка в игре", "Повторное чтение DRS подтверждает сохранённое значение, но не действие внутри уже запущенной игры.", InfoBarSeverity.Warning),
             Buttons(ActionButton("Восстановить прежние параметры", async () =>
             {
                 if (await Confirm(request.Owner, "Восстановить NVIDIA и RTSS",
-                    "Вернуть исходные значения обоих профилей для этого EXE?", "Восстановить"))
+                    "Снять профиль игры и восстановить исходные значения RTSS/NVIDIA, если они сохранены?", "Восстановить"))
                     vm.RestoreCommand.Execute(null);
-            }, enabled: vm.SelectedGameHasBackup),
+            }),
                 ActionButton("Применить профиль к игре", () => vm.ApplyGameCommand.Execute(game), true)));
     }
 
@@ -325,6 +347,7 @@ internal static partial class PageFactory
     {
         var vm = Vm(request);
         return Shell("Импорт игр", "Поиск установленных игр без их запуска",
+            Buttons(ActionButton("Вернуться к играм", () => request.Owner.Navigate("games"))),
             Message("Существующий импорт", "Импорт выполняется для найденных игр целиком. Выбор отдельных записей из макета пока недоступен."),
             ResponsivePair(Card(Column(Strong("Steam"), Secondary("Найти установленные игры Steam и добавить их в библиотеку."),
                     ActionButton("Импортировать Steam", () => vm.ImportSteamCommand.Execute(null), true))),
