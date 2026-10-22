@@ -48,6 +48,8 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
         _viewModel.PropertyChanged += OnViewModelChanged;
+        UpdateRtssBar();
+        UpdateActivityBanner();
 
         _trayIcon = new ShellTrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this),
             Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico"),
@@ -143,7 +145,31 @@ public sealed partial class MainWindow : Window
             StatusBar.IsOpen = true;
         }
         if (args.PropertyName == nameof(MainViewModel.Theme)) ThemeManager.Apply(_viewModel.Theme);
+        if (args.PropertyName is nameof(MainViewModel.RtssWarningVisible) or nameof(MainViewModel.RtssWarning))
+            UpdateRtssBar();
+        if (args.PropertyName is nameof(MainViewModel.IsActivityVisible) or nameof(MainViewModel.SyncProgressMessage)
+            or nameof(MainViewModel.IsApplyingAll))
+            UpdateActivityBanner();
     }
+
+    private void UpdateRtssBar()
+    {
+        RtssBar.Message = _viewModel.RtssWarning;
+        RtssBar.IsOpen = _viewModel.RtssWarningVisible;
+        StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
+    }
+
+    private void UpdateActivityBanner()
+    {
+        bool visible = _viewModel.IsActivityVisible;
+        ActivityBanner.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ActivityRing.IsActive = visible;
+        ActivityText.Text = _viewModel.SyncProgressMessage;
+        StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
+    }
+
+    private void StartRtssButton_Click(object sender, RoutedEventArgs args) =>
+        _viewModel.StartRtssCommand.Execute(null);
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
@@ -269,31 +295,43 @@ public sealed partial class MainWindow : Window
 
     public async Task CheckUpdatesAsync()
     {
-        try
+        string? availableTag = null;
+        Version? availableVersion = null;
+        await _viewModel.RunUserActionAsync("Проверяем обновления…", async () =>
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("GameProfileManager/1.0");
-            using var response = await client.GetAsync("https://api.github.com/repos/Vladislav2505/GameProfileManager/releases/latest");
-            response.EnsureSuccessStatusCode();
-            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            string tag = json.RootElement.GetProperty("tag_name").GetString()
-                ?? throw new FormatException("У опубликованной версии нет номера.");
-            if (!Version.TryParse(tag.TrimStart('v', 'V'), out var latest))
-                throw new FormatException("У опубликованной версии неверный номер.");
-            var current = typeof(MainWindow).Assembly.GetName().Version ?? new Version(0, 0);
-            if (latest <= current)
+            try
             {
-                _viewModel.Notice = $"Установлена актуальная версия {current.ToString(3)}.";
-                return;
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("GameProfileManager/1.0");
+                using var response = await client.GetAsync("https://api.github.com/repos/Vladislav2505/GameProfileManager/releases/latest");
+                response.EnsureSuccessStatusCode();
+                using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                string tag = json.RootElement.GetProperty("tag_name").GetString()
+                    ?? throw new FormatException("У опубликованной версии нет номера.");
+                if (!Version.TryParse(tag.TrimStart('v', 'V'), out var latest))
+                    throw new FormatException("У опубликованной версии неверный номер.");
+                var current = typeof(MainWindow).Assembly.GetName().Version ?? new Version(0, 0);
+                if (latest <= current)
+                {
+                    _viewModel.Notice = $"Установлена актуальная версия {current.ToString(3)}.";
+                    return;
+                }
+                availableTag = tag;
+                availableVersion = latest;
             }
-            _viewModel.Notice = $"Доступна версия {latest}.";
-            if (await PageFactory.ConfirmUpdate(this, latest.ToString()))
-                Process.Start(new ProcessStartInfo("https://github.com/Vladislav2505/GameProfileManager/releases/tag/" +
-                    Uri.EscapeDataString(tag)) { UseShellExecute = true });
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or FormatException or Win32Exception)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or FormatException)
+            { _viewModel.Notice = "Ошибка проверки обновлений. Проверьте подключение к GitHub и повторите попытку."; }
+        });
+        if (availableTag is null || availableVersion is null) return;
+        _viewModel.Notice = $"Доступна версия {availableVersion}.";
+        if (await PageFactory.ConfirmUpdate(this, availableVersion.ToString()))
         {
-            _viewModel.Notice = "Ошибка проверки обновлений. Проверьте подключение к GitHub и повторите попытку.";
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://github.com/Vladislav2505/GameProfileManager/releases/tag/" +
+                    Uri.EscapeDataString(availableTag)) { UseShellExecute = true });
+            }
+            catch (Win32Exception) { _viewModel.Notice = "Не удалось открыть страницу обновления."; }
         }
     }
 
@@ -334,6 +372,11 @@ public sealed partial class MainWindow : Window
         if (!graphicsUnavailable) throw new InvalidOperationException("Graphics availability message is missing.");
         bool iconLoaded = _viewModel.GameCards.FirstOrDefault()?.Icon is not null;
         if (!iconLoaded) throw new InvalidOperationException("Game EXE icon did not load in WinUI.");
+        bool shellChromeReady = AppTitleBar.IconSource is not null && NavView.OpenPaneLength == 248
+            && RtssBar.IsOpen && StartRtssButton.Content is "Запустить RTSS";
+        if (!shellChromeReady) throw new InvalidOperationException("WinUI shell chrome or RTSS action is missing.");
+        bool gameColumnsLabeled = _viewModel.GameCards.FirstOrDefault()?.FpsListDisplay.Contains("FPS") == true;
+        if (!gameColumnsLabeled) throw new InvalidOperationException("Game FPS column lacks a unit.");
         var actualSizes = new List<string>();
         bool firstSize = true;
         foreach (var size in new[] { (1280, 720), (1024, 768), (960, 560) })
@@ -367,18 +410,31 @@ public sealed partial class MainWindow : Window
             ?? throw new InvalidOperationException("Editor did not save requested name. Text=" + draftName.Text +
                 "; notice=" + _viewModel.Notice + "; profiles=" +
                 string.Join(", ", _viewModel.Profiles.Select(profile => profile.Name)));
+        await CaptureAsync(Path.Combine(screenshotDirectory, "Light-profiles-custom.png"));
         bool editorSaved = smokeStore.Load().Profiles.Any(profile => profile.Id == savedProfile.Id);
         Navigate("profile-edit", savedProfile.Id);
         await WaitForRouteAsync("profile-edit");
         Descendants(ContentFrame).OfType<TextBox>().First().Text = "Несохранённый черновик";
         bool discardPreserved = smokeStore.Load().Profiles.Any(profile =>
             profile.Id == savedProfile.Id && profile.Name == "UI Smoke профиль");
+        bool loaderVisible = false;
+        await _viewModel.RunUserActionAsync("Проверка индикатора…", async () =>
+        {
+            await Task.Delay(700);
+            loaderVisible = _viewModel.IsActivityVisible && ActivityBanner.Visibility == Visibility.Visible
+                && ActivityRing.IsActive && ActivityText.Text == "Проверка индикатора…";
+            await CaptureAsync(Path.Combine(screenshotDirectory, "Light-activity-loader.png"));
+        });
+        bool loaderShownAndHidden = loaderVisible && !_viewModel.IsActivityVisible
+            && ActivityBanner.Visibility == Visibility.Collapsed && !ActivityRing.IsActive;
+        if (!loaderShownAndHidden) throw new InvalidOperationException("Shared activity loader did not open and close.");
         if (!draftIsolated || !editorSaved || !discardPreserved)
             throw new InvalidOperationException("Profile editor draft/persistence assertion failed.");
         if (SmokeAudit.WriteAttempts != 0)
             throw new InvalidOperationException("Navigation attempted external writes: " + SmokeAudit.WriteAttempts);
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
             JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
+                shellChromeReady, gameColumnsLabeled, loaderShownAndHidden,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,
                 responsiveWidth = Descendants(ContentFrame).OfType<Grid>()

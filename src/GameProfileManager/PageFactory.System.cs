@@ -43,11 +43,11 @@ internal static partial class PageFactory
             Card(Field("Экран для расчёта FPS по умолчанию",
                 Choice(options, vm.DefaultDisplayId, value => vm.DefaultDisplayId = value))),
             Message("Параметры Windows", "Приложение не меняет разрешение, частоту обновления или HDR."),
-            ActionButton("Обновить список", async () =>
+            ActionButton("Обновить список", async () => await vm.RunUserActionAsync("Обновляем список экранов…", async () =>
             {
                 await vm.RefreshMonitorListAsync();
                 request.Owner.Navigate("monitors");
-            }));
+            })));
     }
 
     private static PageComposition Diagnostics(RouteRequest request)

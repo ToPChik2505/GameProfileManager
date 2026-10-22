@@ -38,10 +38,7 @@ public sealed partial class MainViewModel
         PickLocalFileAsync?.Invoke(title, pattern, initialDirectory) ?? Task.FromResult<string?>(null);
     private async Task ImportSteamAsync()
     {
-        if (_busy) return;
-        _busy = true;
-        SyncProgressMessage = "Поиск установленных игр Steam…";
-        IsApplyingAll = true;
+        if (!BeginActivity("Поиск установленных игр Steam…")) return;
         try
         {
             var previousGames = Games.ToArray();
@@ -61,18 +58,14 @@ public sealed partial class MainViewModel
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка импорта Steam: " + ex.Message; }
         finally
         {
-            _busy = false;
-            IsApplyingAll = false;
+            EndActivity();
             if (!_disposed) { SaveOnly(false); UpdateSummary(); }
         }
     }
 
     private async Task ImportEpicAsync()
     {
-        if (_busy) return;
-        _busy = true;
-        SyncProgressMessage = "Поиск установленных игр Epic Games…";
-        IsApplyingAll = true;
+        if (!BeginActivity("Поиск установленных игр Epic Games…")) return;
         try
         {
             var discovered = await Task.Run(() => EpicDiscovery.FindInstalled());
@@ -90,8 +83,7 @@ public sealed partial class MainViewModel
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка импорта EGS: " + ex.Message; }
         finally
         {
-            _busy = false;
-            IsApplyingAll = false;
+            EndActivity();
             if (!_disposed) { SaveOnly(false); UpdateSummary(); }
         }
     }

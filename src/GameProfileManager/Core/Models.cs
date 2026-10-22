@@ -109,12 +109,14 @@ public sealed class PerformanceProfile : Observable
     public int FpsLimit { get => _fpsLimit; set => Set(ref _fpsLimit, value); }
     public FpsLimitMode FpsMode { get => _fpsMode; set => Set(ref _fpsMode, value); }
     public int FpsDivisor { get => _fpsDivisor; set => Set(ref _fpsDivisor, value); }
-    public VrrMode Vrr { get => _vrr; set { if (Set(ref _vrr, value)) Changed(nameof(VrrDisplay)); } }
+    public VrrMode Vrr { get => _vrr; set { if (Set(ref _vrr, value)) { Changed(nameof(VrrDisplay)); Changed(nameof(ListDetail)); } } }
     public VSyncMode VSync { get => _vSync; set => Set(ref _vSync, value); }
     public RtssLimiterMode? RtssLimiterMode { get => _rtssLimiterMode; set => Set(ref _rtssLimiterMode, value); }
-    public string Description { get => _description; set => Set(ref _description, value); }
+    public string Description { get => _description; set { if (Set(ref _description, value)) Changed(nameof(ListDetail)); } }
     public bool IsBuiltIn { get; set; }
     [JsonIgnore] public string VrrDisplay => ProfileLabels.Vrr(Vrr);
+    [JsonIgnore] public string ListDetail => string.IsNullOrWhiteSpace(Description)
+        ? VrrDisplay : Description + " · " + VrrDisplay;
     [JsonIgnore] public string FpsPreview { get; set; } = "—";
 }
 

@@ -99,11 +99,25 @@ internal static partial class PageFactory
             vm.SelectedGameCard = card;
             request.Owner.Navigate("game", card.Id);
         };
+        var headers = new Grid { ColumnSpacing = 16, Padding = new Thickness(12, 0, 12, 0) };
+        headers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        headers.ColumnDefinitions.Add(new ColumnDefinition());
+        headers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
+        headers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+        headers.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) });
+        foreach (var (title, column) in new[] { ("Игра / EXE", 1), ("Профиль / режим", 2),
+                     ("Лимит FPS", 3), ("Состояние", 4) })
+        {
+            var label = Secondary(title);
+            Grid.SetColumn(label, column);
+            headers.Children.Add(label);
+        }
         return Shell("Мои игры", "Настройки игр и их профилей, без запуска игр",
             ResponsivePair(Field("Поиск", search), Field("Статус", Choice(
                 vm.StatusFilters.Select(item => new ModeOption<string>(item, item)), vm.StatusFilter,
                 value => vm.StatusFilter = value)), 2.5, 1),
             Strong($"Игр в библиотеке: {vm.GameCount}"),
+            headers,
             list,
             Buttons(ActionButton("Добавить игру", () => vm.AddGameCommand.Execute(null), true),
                 ActionButton("Импорт Steam / Epic", () => request.Owner.Navigate("import"))));
@@ -149,7 +163,7 @@ internal static partial class PageFactory
             if (await Confirm(request.Owner, "Удаление игры",
                 "Удалить игру из библиотеки? При наличии исходных значений они будут восстановлены.", "Удалить"))
             { vm.RemoveGameCommand.Execute(null); request.Owner.Navigate("games"); }
-        });
+        }, destructive: true);
         return Shell("Настройки игры", "Профиль и правила дисплеев",
             GameHeader(request, game), ResponsivePair(Card(assignment), Card(Column(
                 Strong("Текущее состояние"),
@@ -276,7 +290,7 @@ internal static partial class PageFactory
             if (await Confirm(request.Owner, "Удалить профиль",
                 "Профиль будет удалён, если он не назначен ни одной игре.", "Удалить"))
                 vm.RemoveProfileCommand.Execute(null);
-        });
+        }, destructive: true);
         void UpdateSelection()
         {
             var profile = vm.SelectedProfile;

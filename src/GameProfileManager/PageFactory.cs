@@ -80,10 +80,17 @@ internal static partial class PageFactory
         CornerRadius = new CornerRadius(10), Padding = new Thickness(20), Child = content
     };
 
-    private static Button ActionButton(string label, Action action, bool accent = false, bool enabled = true)
+    private static Button ActionButton(string label, Action action, bool accent = false, bool enabled = true,
+        bool destructive = false)
     {
         var button = new Button { Content = label, Tag = action, IsEnabled = enabled, MinHeight = 40 };
         if (accent) button.Style = Style("AccentButtonStyle");
+        if (destructive)
+        {
+            button.Foreground = Brush("SystemFillColorCriticalBrush");
+            button.BorderBrush = Brush("SystemFillColorCriticalBrush");
+            button.BorderThickness = new Thickness(1);
+        }
         button.Click += (_, _) => action();
         return button;
     }
@@ -222,20 +229,20 @@ internal static partial class PageFactory
 
     private static FrameworkElement GameIcon(GameProfileManager.Presentation.GameEntryViewModel? card, double size)
     {
-        var frame = new Grid { Width = size, Height = size };
-        frame.Children.Add(new Border
+        var content = new Grid();
+        content.Children.Add(new FontIcon
         {
-            Background = Brush("ControlFillColorDefaultBrush"), CornerRadius = new CornerRadius(8),
-            Child = new FontIcon { Glyph = "\uE7F1", FontSize = size * 0.43,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            Glyph = "\uE7F1", FontSize = size * 0.43,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
         });
         if (card is not null)
         {
             var image = new Image { Width = size, Height = size, Stretch = Stretch.UniformToFill };
             image.SetBinding(Image.SourceProperty, new Binding { Source = card, Path = new PropertyPath("Icon") });
-            frame.Children.Add(image);
+            content.Children.Add(image);
         }
-        return frame;
+        return new Border { Width = size, Height = size, Child = content,
+            Background = Brush("ControlFillColorDefaultBrush"), CornerRadius = new CornerRadius(9) };
     }
 
     private static UIElement GameHeader(RouteRequest request, GameEntry game)

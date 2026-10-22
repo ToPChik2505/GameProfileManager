@@ -86,11 +86,7 @@ public sealed partial class MainViewModel
     /// </summary>
     private async Task ApplyDisplayChangesAsync(GameEntry[] changed)
     {
-        if (_busy) return;
-        _busy = true;
-        SyncProgressMessage = "Обновление лимитов после смены экрана…";
-        IsApplyingAll = true;
-        SyncProgressPercent = 0;
+        if (!BeginActivity("Обновление лимитов после смены экрана…")) return;
         try
         {
             SaveOnly(false, duringSync: true);
@@ -116,8 +112,7 @@ public sealed partial class MainViewModel
         }
         finally
         {
-            _busy = false;
-            IsApplyingAll = false;
+            EndActivity();
             SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();

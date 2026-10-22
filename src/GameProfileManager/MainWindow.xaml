@@ -7,8 +7,13 @@
       <RowDefinition Height="Auto" />
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
-    <TitleBar x:Name="AppTitleBar" Title="GameProfileManager" />
+    <TitleBar x:Name="AppTitleBar" Title="GameProfileManager">
+      <TitleBar.IconSource>
+        <BitmapIconSource UriSource="ms-appx:///Assets/app-icon.png" ShowAsMonochrome="False" />
+      </TitleBar.IconSource>
+    </TitleBar>
     <NavigationView x:Name="NavView" Grid.Row="1" PaneDisplayMode="Auto"
+                    OpenPaneLength="248" CompactPaneLength="64"
                     IsBackButtonVisible="Visible" IsSettingsVisible="True"
                     SelectionChanged="NavView_SelectionChanged"
                     BackRequested="NavView_BackRequested">
@@ -21,7 +26,24 @@
       </NavigationView.MenuItems>
       <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <InfoBar x:Name="StatusBar" IsOpen="False" IsClosable="True" Margin="16,8,16,0" />
+        <StackPanel Spacing="8" Margin="16,8,16,0">
+          <InfoBar x:Name="StatusBar" IsOpen="False" IsClosable="True" />
+          <InfoBar x:Name="RtssBar" Title="RTSS закрыт" Severity="Warning" IsOpen="False" IsClosable="False">
+            <InfoBar.ActionButton>
+              <Button x:Name="StartRtssButton" Content="Запустить RTSS" Click="StartRtssButton_Click" />
+            </InfoBar.ActionButton>
+          </InfoBar>
+          <Border x:Name="ActivityBanner" Visibility="Collapsed" Padding="12,8"
+                  Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                  BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                  CornerRadius="8">
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <ProgressRing x:Name="ActivityRing" Width="24" Height="24" IsActive="False" />
+              <TextBlock x:Name="ActivityText" VerticalAlignment="Center" TextWrapping="Wrap"
+                         Style="{ThemeResource BodyTextBlockStyle}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
         <Frame x:Name="ContentFrame" Grid.Row="1" />
         <TextBlock x:Name="ControllerLegend" Grid.Row="2" Text="A — выбрать     B — назад     LB/RB — разделы     D-pad — перемещение"
                    Style="{ThemeResource CaptionTextBlockStyle}" Margin="24,8,24,12" Visibility="Collapsed" />

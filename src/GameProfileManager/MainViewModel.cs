@@ -481,30 +481,29 @@ public sealed partial class MainViewModel : Observable, IDisposable
             };
             if (game is null) { Notice = "Выберите игру."; return; }
             _ = RunSyncAsync((service, state) => service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)),
-                () => Notice = game.Name + ": " + game.Detail);
+                () => Notice = game.Name + ": " + game.Detail, "Применяем профиль игры…");
         }, () => !_busy);
         VerifyCommand = new Command(() => _ = RunSyncAsync((service, state) => service.CheckSaved(state),
-            () => Notice = "Проверка сохранённых параметров завершена."), () => !_busy);
+            () => Notice = "Проверка сохранённых параметров завершена.", "Проверяем сохранённые параметры…"), () => !_busy);
         RestoreCommand = new Command(() =>
         {
             if (SelectedGame is not { } game) { Notice = "Выберите игру."; return; }
             _ = RunSyncAsync((service, state) => service.Restore(state, state.Games.Single(item => item.Id == game.Id)),
-                () => Notice = game.Status == ApplyStatus.Error ? game.Detail : "Исходные параметры восстановлены.");
+                () => Notice = game.Status == ApplyStatus.Error ? game.Detail : "Исходные параметры восстановлены.",
+                "Восстанавливаем исходные параметры…");
         }, () => !_busy);
-        BackupCommand = new Command(() => Run(() => Notice = "Резервная копия: " + _store.ExportBackup(_state)), () => !_busy);
+        BackupCommand = new Command(() => _ = RunUserActionAsync("Создаём резервную копию…", async () =>
+        {
+            var snapshot = AppStateSnapshot.Capture(_state);
+            string path = await Task.Run(() => _store.ExportBackup(snapshot));
+            Notice = "Резервная копия: " + path;
+        }), () => !_busy);
         BrowseRtssCommand = new Command(async () =>
         {
             string? path = await SelectLocalFileAsync("Выберите RTSSHooks64.dll", "RTSSHooks64.dll", RtssDirectory);
             if (path is not null) { RtssDirectory = Path.GetDirectoryName(path)!; SaveOnly(); _ = RefreshIntegrationStatusAsync(); }
         }, () => !_busy);
-        StartRtssCommand = new Command(() => Run(() =>
-        {
-            string directory = string.IsNullOrWhiteSpace(RtssDirectory) ? RtssClient.DetectDirectory() ?? "" : RtssDirectory;
-            string exe = Path.Combine(directory, "RTSS.exe");
-            if (!File.Exists(exe)) { Notice = "RTSS.exe не найден. Укажите папку RTSS в настройках."; return; }
-            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, WorkingDirectory = directory });
-            Notice = "RTSS запускается. Состояние обновится автоматически.";
-        }), () => !_busy);
+        StartRtssCommand = new Command(() => _ = StartRtssAsync(), () => !_busy);
         DiagnosticsCommand = new Command(() => _ = RunDiagnosticsAsync(), () => !_busy);
         foreach (var p in Profiles) Hook(p);
         foreach (var g in Games) Hook(g);
@@ -599,6 +598,53 @@ public sealed partial class MainViewModel : Observable, IDisposable
         _saveTimer.Stop();
         _saveTimer.Start();
     }
+
+    private bool BeginActivity(string message)
+    {
+        if (_busy || _disposed) return false;
+        _busy = true;
+        SyncProgressMessage = message;
+        SyncProgressPercent = 0;
+        IsApplyingAll = true;
+        return true;
+    }
+
+    private void EndActivity()
+    {
+        _busy = false;
+        IsApplyingAll = false;
+        UpdateSummary();
+    }
+
+    public async Task RunUserActionAsync(string message, Func<Task> operation)
+    {
+        if (!BeginActivity(message)) return;
+        try { await operation(); }
+        catch (Exception ex)
+        {
+            _store.Log(ex);
+            Notice = "Ошибка операции: " + ex.Message;
+        }
+        finally { EndActivity(); }
+    }
+
+    private Task StartRtssAsync() => RunUserActionAsync("Запускаем RTSS…", async () =>
+    {
+        string directory = string.IsNullOrWhiteSpace(RtssDirectory) ? RtssClient.DetectDirectory() ?? "" : RtssDirectory;
+        string exe = Path.Combine(directory, "RTSS.exe");
+        if (!File.Exists(exe))
+        {
+            Notice = "RTSS.exe не найден. Укажите папку RTSS в настройках.";
+            return;
+        }
+        await Task.Run(() => Process.Start(new ProcessStartInfo(exe)
+            { UseShellExecute = true, WorkingDirectory = directory }));
+        for (int attempt = 0; attempt < 16 && !await Task.Run(() => RtssClient.ProcessIsRunning); attempt++)
+            await Task.Delay(500);
+        await RefreshIntegrationStatusAsync();
+        Notice = RtssWarningVisible ? "RTSS ещё запускается. Состояние обновится автоматически."
+            : "RTSS запущен. Проверьте профили и при необходимости примените их.";
+    });
     private void SaveOnly(bool announce = true, bool duringSync = false)
     {
         if (_busy && !duringSync) return;
@@ -610,16 +656,13 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
     /// <summary>
     /// Сохраняет конфигурацию перед внешней операцией и публикует её результат
-    /// только после возврата на поток WPF. Блокировка команд действует до записи
+    /// только после возврата на поток WinUI. Блокировка команд действует до записи
     /// окончательного состояния и исключает конкурирующее сохранение SQLite.
     /// </summary>
-    private async Task<bool> RunSyncAsync(Action<SyncService, AppState> operation, Action? completed = null)
+    private async Task<bool> RunSyncAsync(Action<SyncService, AppState> operation, Action? completed = null,
+        string message = "Работаем с профилем игры…")
     {
-        if (_busy) return false;
-        _busy = true;
-        if (string.IsNullOrWhiteSpace(SyncProgressMessage) || !IsActivityVisible)
-            SyncProgressMessage = "Применение настроек…";
-        IsApplyingAll = true;
+        if (!BeginActivity(message)) return false;
         try
         {
             SaveOnly(false, duringSync: true);
@@ -638,8 +681,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
         finally
         {
-            _busy = false;
-            IsApplyingAll = false;
+            EndActivity();
             SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
@@ -662,10 +704,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
     private async Task RunDiagnosticsAsync()
     {
-        if (_busy) return;
-        _busy = true;
-        SyncProgressMessage = "Проверяем игровые профили и подключения…";
-        IsApplyingAll = true;
+        if (!BeginActivity("Проверяем игровые профили и подключения…")) return;
         DiagnosticsStatus = "Выполняется чтение RTSS, NVIDIA DRS и локальных параметров…";
         try
         {
@@ -690,8 +729,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         }
         finally
         {
-            _busy = false;
-            IsApplyingAll = false;
+            EndActivity();
             if (!_disposed)
             {
                 SaveOnly(false);
@@ -715,14 +753,6 @@ public sealed partial class MainViewModel : Observable, IDisposable
         if (SelectedGame == game) SelectedGame = null;
         SaveOnly();
         UpdateSummary();
-    }
-    private void Run(Action action)
-    {
-        if (_busy) return;
-        _busy = true;
-        try { action(); }
-        catch (Exception ex) { _store.Log(ex); Notice = ex.Message; }
-        finally { _busy = false; UpdateSummary(); }
     }
     private void UpdateSummary()
     {

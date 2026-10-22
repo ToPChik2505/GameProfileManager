@@ -8,12 +8,8 @@ public sealed partial class MainViewModel
 {
     private async Task ApplyAllAsync(bool checkSavedFirst = false)
     {
-        if (_busy) return;
+        if (!BeginActivity(checkSavedFirst ? "Проверяем сохранённые параметры игр…" : "Подготавливаем применение…")) return;
         _latestDiagnosticsProbe = null;
-        _busy = true;
-        IsApplyingAll = true;
-        SyncProgressPercent = 0;
-        SyncProgressMessage = checkSavedFirst ? "Проверяем сохранённые параметры игр…" : "Подготавливаем применение…";
         Notice = checkSavedFirst ? "Проверяем настройки при запуске." : "Применяем профили. Окно остаётся доступным.";
         try
         {
@@ -63,8 +59,7 @@ public sealed partial class MainViewModel
         }
         finally
         {
-            _busy = false;
-            IsApplyingAll = false;
+            EndActivity();
             SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
