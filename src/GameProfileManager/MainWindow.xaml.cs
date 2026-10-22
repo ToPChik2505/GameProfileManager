@@ -92,6 +92,14 @@ public sealed partial class MainWindow : Window
         if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
     }
 
+    public bool StartHiddenIfTrayAvailable()
+    {
+        if (!_trayIcon.IsAvailable) return false;
+        AppWindow.Hide();
+        _controllerInput.SetBackgroundMode(true);
+        return true;
+    }
+
     public void RestoreFromSecondLaunch() => RestoreWindow();
 
     private void RestoreWindow()

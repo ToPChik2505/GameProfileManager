@@ -23,13 +23,13 @@ public sealed class SingleInstanceCoordinator : IDisposable
         _activationName = scope + ".Activate";
     }
 
-    public bool TrySignalExisting()
+    public bool TrySignalExisting(bool activate = true)
     {
         try
         {
             if (!EventWaitHandleAcl.TryOpenExisting(_activationName, EventWaitHandleRights.Modify,
                     out EventWaitHandle? activation)) return false;
-            using (activation) activation.Set();
+            using (activation) { if (activate) activation.Set(); }
             return true;
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
@@ -38,7 +38,7 @@ public sealed class SingleInstanceCoordinator : IDisposable
         }
     }
 
-    public bool TryStart(Action onActivation)
+    public bool TryStart(Action onActivation, bool activateExisting = true)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(SingleInstanceCoordinator));
         if (_mutex is not null) throw new InvalidOperationException("Проверка экземпляра уже запущена.");
@@ -55,7 +55,7 @@ public sealed class SingleInstanceCoordinator : IDisposable
             {
                 _mutex.Dispose();
                 _mutex = null;
-                TrySignalExisting();
+                TrySignalExisting(activateExisting);
                 return false;
             }
 

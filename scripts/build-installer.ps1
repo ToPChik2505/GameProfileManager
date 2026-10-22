@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string] $InnoCompiler,
     [string] $OutputDirectory
 )
@@ -18,8 +18,10 @@ if (-not $InnoCompiler) {
     foreach ($candidate in @(
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
         (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
         (Join-Path $env:ProgramFiles 'Inno Setup 7\ISCC.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe')
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 7\ISCC.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 7\ISCC.exe')
     )) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { $InnoCompiler = $candidate; break }
     }

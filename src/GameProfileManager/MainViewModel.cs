@@ -364,12 +364,26 @@ public sealed partial class MainViewModel : Observable, IDisposable
             try
             {
                 using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-                if (value) key.SetValue("GameProfileManager", '"' + Environment.ProcessPath! + '"');
+                if (value) key.SetValue("GameProfileManager", AutoStartCommand);
                 else key.DeleteValue("GameProfileManager", false);
             }
             catch (Exception ex) { _store.Log(ex); Notice = "Не удалось изменить автозапуск: " + ex.Message; }
             Changed(nameof(AutoStart));
         }
+    }
+    private static string AutoStartCommand => '"' + Environment.ProcessPath! + '"' + " --autostart";
+
+    public static void UpgradeAutoStartEntry()
+    {
+        if (Environment.ProcessPath is not { } exe) return;
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
+            if (string.Equals(key?.GetValue("GameProfileManager") as string,
+                    '"' + exe + '"', StringComparison.OrdinalIgnoreCase))
+                key!.SetValue("GameProfileManager", AutoStartCommand);
+        }
+        catch (Exception) { }
     }
     public string NvidiaStatus => _sync.NvidiaStatus ?? "Проверка...";
     public string RtssStatus => _sync.RtssStatus ?? "Проверка...";

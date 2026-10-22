@@ -21,19 +21,29 @@ internal static class ElevatedLaunchTask
         }
     }
 
-    public static bool TryRun()
+    public static bool TryRun(bool autoStart = false)
     {
         if (Environment.ProcessPath is not { } exe || !IsProtectedInstall(exe)) return false;
         try
         {
             return WithTask(task =>
             {
-                if (!IsOwnTask(task)) return false;
-                task.Run(null);
+                if (!IsOwnTask(task) || autoStart && !SupportsArguments(task)) return false;
+                task.Run(autoStart ? "--autostart" : "");
                 return true;
             });
         }
         catch (Exception) { return false; }
+    }
+
+    // Старые установки задачи не передают аргументы. Обновляем только свою проверенную задачу.
+    public static void UpgradeIfNeeded()
+    {
+        try
+        {
+            if (WithTask(task => IsOwnTask(task) && !SupportsArguments(task))) Install();
+        }
+        catch (Exception) { }
     }
 
     public static void Install()
@@ -58,6 +68,7 @@ internal static class ElevatedLaunchTask
         definition.Settings.MultipleInstances = 2; // TASK_INSTANCES_IGNORE_NEW
         dynamic action = definition.Actions.Create(0); // TASK_ACTION_EXEC
         action.Path = exe;
+        action.Arguments = "$(Arg0)";
         action.WorkingDirectory = Path.GetDirectoryName(exe)!;
         folder.RegisterTaskDefinition(TaskName, definition, 6, null, null, 3, null); // CREATE_OR_UPDATE
         dynamic registeredTask;
@@ -90,6 +101,9 @@ internal static class ElevatedLaunchTask
 
     private static bool IsOwnTask(dynamic task) => TaskMismatch(task) is null;
 
+    private static bool SupportsArguments(dynamic task) =>
+        string.Equals((string?)task.Definition.Actions.Item(1).Arguments, "$(Arg0)", StringComparison.Ordinal);
+
     private static string? TaskMismatch(dynamic task)
     {
         string? exe = Environment.ProcessPath;
@@ -99,7 +113,8 @@ internal static class ElevatedLaunchTask
         if (!definition.Settings.Enabled) return "задача отключена";
         dynamic action = definition.Actions.Item(1);
         if (action.Type != 0) return "действие не является запуском EXE";
-        if (!string.IsNullOrEmpty((string?)action.Arguments)) return "у действия появились аргументы";
+        string? arguments = (string?)action.Arguments;
+        if (!string.IsNullOrEmpty(arguments) && arguments != "$(Arg0)") return "у действия появились неизвестные аргументы";
         if (!string.Equals(Path.GetFullPath((string)action.Path), Path.GetFullPath(exe), StringComparison.OrdinalIgnoreCase))
             return "путь к EXE отличается от установленного приложения";
         if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath((string)action.WorkingDirectory)),

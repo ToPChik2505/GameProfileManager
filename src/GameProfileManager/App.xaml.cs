@@ -20,20 +20,22 @@ public partial class App : Microsoft.UI.Xaml.Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         string[] commandLine = Environment.GetCommandLineArgs();
+        bool autoStart = commandLine.Contains("--autostart", StringComparer.OrdinalIgnoreCase);
         int smokeArgument = Array.IndexOf(commandLine, "--ui-smoke");
         bool smoke = smokeArgument >= 0 && smokeArgument + 1 < commandLine.Length;
         string? smokeDirectory = smoke ? Path.GetFullPath(commandLine[smokeArgument + 1]) : null;
         _singleInstance = new SingleInstanceCoordinator(smoke ? "GameProfileManager.UiSmoke." + Environment.ProcessId : "GameProfileManager");
-        if (_singleInstance.TrySignalExisting()) { Exit(); return; }
+        if (_singleInstance.TrySignalExisting(!autoStart)) { Exit(); return; }
 
         if (!smoke && !new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator))
         {
-            if (ElevatedLaunchTask.TryRun()) { Exit(); return; }
+            if (ElevatedLaunchTask.TryRun(autoStart)) { Exit(); return; }
             try
             {
                 Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
                 {
-                    Verb = "runas", UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory
+                    Verb = "runas", UseShellExecute = true, WorkingDirectory = AppContext.BaseDirectory,
+                    Arguments = autoStart ? "--autostart" : ""
                 });
             }
             catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
@@ -51,7 +53,7 @@ public partial class App : Microsoft.UI.Xaml.Application
         }
 
         if (!_singleInstance.TryStart(() => MainWindowInstance?.DispatcherQueue.TryEnqueue(
-                () => MainWindowInstance?.RestoreFromSecondLaunch())))
+                () => MainWindowInstance?.RestoreFromSecondLaunch()), !autoStart))
         {
             Exit();
             return;
@@ -59,13 +61,21 @@ public partial class App : Microsoft.UI.Xaml.Application
 
         try
         {
+            if (!smoke)
+            {
+                ElevatedLaunchTask.UpgradeIfNeeded();
+                MainViewModel.UpgradeAutoStartEntry();
+            }
             var store = new SqliteStateStore(smoke ? Path.Combine(smokeDirectory!, "state") : null);
             SyncService? sync = smoke ? new SyncService(store,
                 _ => new SmokeRtssClient(), () => new SmokeNvidiaClient(), () => []) : null;
             MainWindowInstance = new MainWindow(new MainViewModel(store, sync));
             ThemeManager.Apply(MainWindowInstance.ViewModel.Theme);
-            MainWindowInstance.Activate();
-            if (!smoke) MainWindowInstance.MaximizeForApplicationStartup();
+            if (!autoStart || !MainWindowInstance.StartHiddenIfTrayAvailable())
+            {
+                MainWindowInstance.Activate();
+                if (!smoke) MainWindowInstance.MaximizeForApplicationStartup();
+            }
             if (smoke) MainWindowInstance.DispatcherQueue.TryEnqueue(async () =>
             {
                 try { await MainWindowInstance.RunSmokeAsync(smokeDirectory!); }
