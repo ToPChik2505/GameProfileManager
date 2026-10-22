@@ -78,6 +78,16 @@ dotnet run --project .\tests\GameProfileManager.UITests -c Release -- $smoke
 
 Консольные проекты запускаются через `dotnet run`. Интеграционная диагностика без дополнительных флагов читает RTSS/NVIDIA. Флаги `--write-test`, `--nvidia-write-test` и `--sync-test` выполняют запись и не предназначены для обычной проверки. WinUI UI Smoke требует интерактивной Windows-сессии и нового каталога для каждого запуска: он создаёт временную SQLite, запускает приложение с fake-клиентами RTSS/NVIDIA, проходит страницы и проверяет отсутствие внешних записей при навигации.
 
+Для проверки приложения из опубликованной папки без установщика:
+
+```powershell
+dotnet publish .\src\GameProfileManager\GameProfileManager.csproj -c Release -r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o .\artifacts\test-exe
+Test-Path .\artifacts\test-exe\GameProfileManager.pri
+& .\artifacts\test-exe\GameProfileManager.exe
+```
+
+`Test-Path` должен вернуть `True`: проектный файл ресурсов WinUI обязателен для запуска. Переносите всю папку `test-exe`, а не один EXE. Обычный запуск запрашивает права администратора и использует локальную базу пользователя; для безопасной автоматической проверки используйте UI Smoke выше.
+
 Для локальной сборки EXE-установщика также установите [Inno Setup 6](https://jrsoftware.org/isdl.php):
 
 ```powershell

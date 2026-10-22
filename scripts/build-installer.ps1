@@ -35,7 +35,7 @@ try {
     & dotnet publish $project -c Release -r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:CopyOutputSymbolsToPublishDirectory=false -o $stage
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish завершился с кодом $LASTEXITCODE" }
 
-    foreach ($required in @('GameProfileManager.exe', 'GameProfileManager.Engine.dll',
+    foreach ($required in @('GameProfileManager.exe', 'GameProfileManager.Engine.dll', 'GameProfileManager.pri',
                            'Microsoft.WindowsAppRuntime.dll', 'Microsoft.ui.xaml.dll',
                            'SDL3.dll', 'SDL3-LICENSE.txt')) {
         if (-not (Test-Path -LiteralPath (Join-Path $stage $required) -PathType Leaf)) {
