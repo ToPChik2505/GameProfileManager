@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
@@ -260,16 +261,21 @@ public sealed partial class MainWindow : Window
             return;
         }
         if (GetForegroundWindow() != WinRT.Interop.WindowNative.GetWindowHandle(this)) return;
+        DispatchControllerAction(action);
+    }
+
+    private void DispatchControllerAction(ControllerAction action)
+    {
         _controllerMode = true;
         ControllerLegend.Visibility = _controllerConnected ? Visibility.Visible : Visibility.Collapsed;
         if (ActiveKeyboard is { } keyboard) { keyboard.HandleController(action); return; }
         if (_activePicker is { } picker) { picker.HandleController(action); return; }
         switch (action)
         {
-            case ControllerAction.Up: FocusManager.TryMoveFocus(FocusNavigationDirection.Up); break;
-            case ControllerAction.Down: FocusManager.TryMoveFocus(FocusNavigationDirection.Down); break;
-            case ControllerAction.Left: FocusManager.TryMoveFocus(FocusNavigationDirection.Left); break;
-            case ControllerAction.Right: FocusManager.TryMoveFocus(FocusNavigationDirection.Right); break;
+            case ControllerAction.Up: MoveControllerFocus(FocusNavigationDirection.Up); break;
+            case ControllerAction.Down: MoveControllerFocus(FocusNavigationDirection.Down); break;
+            case ControllerAction.Left: MoveControllerFocus(FocusNavigationDirection.Left); break;
+            case ControllerAction.Right: MoveControllerFocus(FocusNavigationDirection.Right); break;
             case ControllerAction.Back: GoBack(); break;
             case ControllerAction.PreviousPage: CycleTopLevel(-1); break;
             case ControllerAction.NextPage: CycleTopLevel(1); break;
@@ -288,6 +294,17 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void MoveControllerFocus(FocusNavigationDirection direction)
+    {
+        if (!RootLayout.IsLoaded) return;
+        if (FocusManager.GetFocusedElement(RootLayout.XamlRoot) is null)
+        {
+            NavView.MenuItems.OfType<NavigationViewItem>().FirstOrDefault()?.Focus(FocusState.Programmatic);
+            return;
+        }
+        FocusManager.TryMoveFocus(direction, new FindNextElementOptions { SearchRoot = RootLayout });
+    }
+
     private async Task EditTextFromControllerAsync(TextBox text)
     {
         string? value = await ControllerKeyboard.PromptAsync(this, "Ввод текста", text.Text);
@@ -300,7 +317,7 @@ public sealed partial class MainWindow : Window
         var focused = FocusManager.GetFocusedElement(RootLayout.XamlRoot);
         switch (focused)
         {
-            case Button { Tag: Action invoke }: invoke(); break;
+            case Button { IsEnabled: true } button: new ButtonAutomationPeer(button).Invoke(); break;
             case NavigationViewItem item: NavView.SelectedItem = item; break;
             case ComboBox combo: combo.IsDropDownOpen = !combo.IsDropDownOpen; break;
             case ToggleSwitch toggle: toggle.IsOn = !toggle.IsOn; break;
@@ -392,6 +409,21 @@ public sealed partial class MainWindow : Window
     internal async Task RunSmokeAsync(string outputDirectory)
     {
         Directory.CreateDirectory(outputDirectory);
+        foreach (ControllerAction action in new[] { ControllerAction.Up, ControllerAction.Down,
+            ControllerAction.Left, ControllerAction.Right, ControllerAction.PreviousPage,
+            ControllerAction.NextPage })
+            DispatchControllerAction(action);
+        Navigate("overview");
+        await WaitForRouteAsync("overview");
+        var controllerOpenGames = Descendants(ContentFrame).OfType<Button>()
+            .First(button => button.Content is "Открыть мои игры");
+        controllerOpenGames.Focus(FocusState.Programmatic);
+        DispatchControllerAction(ControllerAction.Accept);
+        await WaitForRouteAsync("games");
+        bool controllerFocusAndAcceptWorks = FocusManager.GetFocusedElement(RootLayout.XamlRoot) is not null
+            && CurrentRoute == "games";
+        if (!controllerFocusAndAcceptWorks)
+            throw new InvalidOperationException("Controller focus or button activation failed.");
         string screenshotDirectory = Path.Combine(outputDirectory, "screenshots");
         Directory.CreateDirectory(screenshotDirectory);
         var routes = new[] { "overview", "games", "profiles", "monitors", "diagnostics", "settings",
@@ -556,6 +588,7 @@ public sealed partial class MainWindow : Window
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
             JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
                 shellChromeReady, gameColumnsLabeled, loaderShownAndHidden, importReturnWorks, controllerReturnWorks,
+                controllerFocusAndAcceptWorks,
                 monitorAppearsImmediately, exeSelectionWorks, restoreClearsProfile,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,

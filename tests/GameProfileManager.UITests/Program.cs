@@ -54,6 +54,7 @@ if (root.GetProperty("routes").GetArrayLength() != 15 ||
     !root.GetProperty("loaderShownAndHidden").GetBoolean() ||
     !root.GetProperty("importReturnWorks").GetBoolean() ||
     !root.GetProperty("controllerReturnWorks").GetBoolean() ||
+    !root.GetProperty("controllerFocusAndAcceptWorks").GetBoolean() ||
     !root.GetProperty("monitorAppearsImmediately").GetBoolean() ||
     !root.GetProperty("exeSelectionWorks").GetBoolean() ||
     !root.GetProperty("restoreClearsProfile").GetBoolean() ||
@@ -69,6 +70,7 @@ Console.WriteLine("PASS graphics unavailable and no external writes during navig
 Console.WriteLine("PASS game EXE icon extraction and WinUI binding");
 Console.WriteLine("PASS title icon, compact sidebar, labeled game data and shared activity loader");
 Console.WriteLine("PASS always-visible back arrow, controller/import return, keyboard and mouse back dispatch");
+Console.WriteLine("PASS WinUI desktop controller focus and native button activation");
 Console.WriteLine("PASS immediate monitor fields, EXE selection and profile reset");
 Console.WriteLine("PASS profile editor draft isolation and explicit save to temporary SQLite");
 Console.WriteLine("Evidence: " + resultPath);
