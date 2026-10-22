@@ -103,7 +103,7 @@ internal static partial class PageFactory
             Toggle("Сворачивать в трей при закрытии", vm.MinimizeToTray, value => vm.MinimizeToTray = value),
             Toggle("Автозапуск вместе с Windows", vm.AutoStart, value => vm.AutoStart = value),
             Toggle("Запуск с повышением без повторного UAC", vm.SilentAdminLaunch,
-                value => vm.SilentAdminLaunch = value)));
+                value => vm.SilentAdminLaunch = value, () => vm.SilentAdminLaunch)));
         var integration = Card(Column(
             Strong("Интеграция RTSS"), Secondary(vm.RtssStatus),
             Field("Папка RTSS", Secondary(vm.RtssDirectory)),

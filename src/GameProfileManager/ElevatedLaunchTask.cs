@@ -60,7 +60,14 @@ internal static class ElevatedLaunchTask
         action.Path = exe;
         action.WorkingDirectory = Path.GetDirectoryName(exe)!;
         folder.RegisterTaskDefinition(TaskName, definition, 6, null, null, 3, null); // CREATE_OR_UPDATE
-        if (!IsInstalled) throw new InvalidOperationException("Планировщик не подтвердил созданную задачу запуска.");
+        dynamic registeredTask;
+        try { registeredTask = folder.GetTask(TaskName); }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Планировщик создал задачу, но приложение не может прочитать её обратно: " + ex.Message, ex);
+        }
+        if (TaskMismatch(registeredTask) is { } mismatch)
+            throw new InvalidOperationException("Созданная задача запуска не прошла проверку: " + mismatch);
     }
 
     public static void Uninstall()
@@ -81,19 +88,40 @@ internal static class ElevatedLaunchTask
         return action(task);
     }
 
-    private static bool IsOwnTask(dynamic task)
+    private static bool IsOwnTask(dynamic task) => TaskMismatch(task) is null;
+
+    private static string? TaskMismatch(dynamic task)
     {
         string? exe = Environment.ProcessPath;
-        if (exe is null || !IsProtectedInstall(exe)) return false;
+        if (exe is null || !IsProtectedInstall(exe)) return "приложение запущено вне защищённой папки установки";
         dynamic definition = task.Definition;
-        if (definition.Actions.Count != 1 || !definition.Settings.Enabled) return false;
+        if (definition.Actions.Count != 1) return "число действий отличается от одного";
+        if (!definition.Settings.Enabled) return "задача отключена";
         dynamic action = definition.Actions.Item(1);
-        if (action.Type != 0 || !string.IsNullOrEmpty((string)action.Arguments)) return false;
-        return string.Equals(Path.GetFullPath((string)action.Path), Path.GetFullPath(exe), StringComparison.OrdinalIgnoreCase)
-            && string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath((string)action.WorkingDirectory)),
-                Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetDirectoryName(exe)!)), StringComparison.OrdinalIgnoreCase)
-            && string.Equals((string)definition.Principal.UserId, UserSid, StringComparison.OrdinalIgnoreCase)
-            && definition.Principal.LogonType == 3 && definition.Principal.RunLevel == 1;
+        if (action.Type != 0) return "действие не является запуском EXE";
+        if (!string.IsNullOrEmpty((string?)action.Arguments)) return "у действия появились аргументы";
+        if (!string.Equals(Path.GetFullPath((string)action.Path), Path.GetFullPath(exe), StringComparison.OrdinalIgnoreCase))
+            return "путь к EXE отличается от установленного приложения";
+        if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath((string)action.WorkingDirectory)),
+            Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetDirectoryName(exe)!)), StringComparison.OrdinalIgnoreCase))
+            return "рабочая папка отличается от папки приложения";
+        if (!IsCurrentUser((string?)definition.Principal.UserId)) return "учётная запись задачи отличается от текущего пользователя";
+        if (definition.Principal.LogonType != 3) return "тип входа не является интерактивным";
+        if (definition.Principal.RunLevel != 1) return "задача не настроена на максимальные права";
+        return null;
+    }
+
+    private static bool IsCurrentUser(string? registeredUser)
+    {
+        if (string.IsNullOrWhiteSpace(registeredUser)) return false;
+        if (string.Equals(registeredUser, UserSid, StringComparison.OrdinalIgnoreCase)) return true;
+        try
+        {
+            var sid = (SecurityIdentifier)new NTAccount(registeredUser).Translate(typeof(SecurityIdentifier));
+            return string.Equals(sid.Value, UserSid, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (IdentityNotMappedException) { return false; }
+        catch (ArgumentException) { return false; }
     }
 
     private static bool IsProtectedInstall(string exe)

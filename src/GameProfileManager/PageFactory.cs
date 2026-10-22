@@ -218,10 +218,21 @@ internal static partial class PageFactory
         return grid;
     }
 
-    private static ToggleSwitch Toggle(string label, bool value, Action<bool> changed)
+    private static ToggleSwitch Toggle(string label, bool value, Action<bool> changed, Func<bool>? readBack = null)
     {
         var toggle = new ToggleSwitch { Header = label, IsOn = value };
-        toggle.Toggled += (_, _) => changed(toggle.IsOn);
+        bool reflecting = false;
+        toggle.Toggled += (_, _) =>
+        {
+            if (reflecting) return;
+            changed(toggle.IsOn);
+            if (readBack is null) return;
+            bool actual = readBack();
+            if (toggle.IsOn == actual) return;
+            reflecting = true;
+            try { toggle.IsOn = actual; }
+            finally { reflecting = false; }
+        };
         return toggle;
     }
 
