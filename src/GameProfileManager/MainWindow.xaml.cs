@@ -51,7 +51,7 @@ public sealed partial class MainWindow : Window
         ThemeManager.Apply(viewModel.Theme);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        AppWindow.SetIcon("Assets/gameprofilemanager_color.ico");
+        AppWindow.SetIcon("Assets/gameprofilemanager_monochrome.ico");
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
         _viewModel.PropertyChanged += OnViewModelChanged;
@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window
         UpdateActivityBanner();
 
         _trayIcon = new ShellTrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "gameprofilemanager_color.ico"),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "gameprofilemanager_monochrome.ico"),
             RestoreWindow,
             () => _viewModel.VerifyCommand.Execute(null),
             () => _viewModel.ApplyCommand.Execute(null), ExitFromTray);
@@ -504,7 +504,7 @@ public sealed partial class MainWindow : Window
         if (!graphicsUnavailable) throw new InvalidOperationException("Graphics availability message is missing.");
         bool iconLoaded = _viewModel.GameCards.FirstOrDefault()?.Icon is not null;
         if (!iconLoaded) throw new InvalidOperationException("Game EXE icon did not load in WinUI.");
-        bool shellChromeReady = AppTitleBar.IconSource is not null && NavView.OpenPaneLength == 248
+        bool shellChromeReady = AppTitleBar.LeftHeader is Image && NavView.OpenPaneLength == 248
             && RtssBar.IsOpen && StartRtssButton.Content is "Запустить RTSS";
         if (!shellChromeReady) throw new InvalidOperationException("WinUI shell chrome or RTSS action is missing.");
         bool gameColumnsLabeled = _viewModel.GameCards.FirstOrDefault()?.FpsListDisplay.Contains("FPS") == true;

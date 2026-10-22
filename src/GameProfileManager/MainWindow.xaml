@@ -8,9 +8,10 @@
       <RowDefinition Height="*" />
     </Grid.RowDefinitions>
     <TitleBar x:Name="AppTitleBar" Title="GameProfileManager">
-      <TitleBar.IconSource>
-        <BitmapIconSource UriSource="ms-appx:///Assets/gameprofilemanager_color.png" ShowAsMonochrome="False" />
-      </TitleBar.IconSource>
+      <TitleBar.LeftHeader>
+        <Image Source="ms-appx:///Assets/gameprofilemanager_monochrome.png"
+               Width="32" Height="32" Stretch="Uniform" IsHitTestVisible="False" />
+      </TitleBar.LeftHeader>
     </TitleBar>
     <NavigationView x:Name="NavView" Grid.Row="1" PaneDisplayMode="Auto"
                     OpenPaneLength="248" CompactPaneLength="64"
