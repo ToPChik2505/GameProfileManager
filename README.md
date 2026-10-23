@@ -1,125 +1,253 @@
-# Game Profile Manager
+<p align="center">
+  <img src="src/GameProfileManager/Assets/gameprofilemanager_color.png" alt="Game Profile Manager icon" width="96" height="96">
+</p>
 
-Game Profile Manager — приложение для Windows 11 x64, которое назначает играм профили FPS, RTSS и NVIDIA DRS. Оно работает с игровыми `.exe`, проверяет записанные значения повторным чтением и позволяет вернуть прежние настройки. Игры запускаются обычным способом: приложение не является лаунчером.
+<h1 align="center">Game Profile Manager</h1>
 
-## Версия 2.0
+<p align="center">
+  Manage per-game FPS limits, NVIDIA driver settings, and RTSS profiles on Windows 11.
+  <br>
+  <strong>A profile manager, not a game launcher.</strong>
+</p>
 
-Интерфейс перенесён с WPF на WinUI 3. В нём используются системная тема Windows, штатная навигация и окна подтверждения; страницы игр, профилей, мониторов и диагностики доступны с мыши, клавиатуры и контроллера. Для DualSense показывается раскладка PlayStation. Назначение профиля и его применение остаются отдельными действиями.
+<p align="center">
+  <a href="README.md"><strong>English</strong></a> · <a href="README.ru.md">Русский</a>
+</p>
 
-Версия 2.0 устанавливается поверх 1.x. База `%LOCALAPPDATA%\GameProfileManager\profiles.db`, формат JSON, назначения игр и сохранённые исходные значения RTSS/NVIDIA сохраняются; преобразование схемы не требуется. Перед обновлением закройте приложение полностью, включая значок в трее. Раздел графических конфигураций пока информационный: создание и применение снимков не реализованы.
+<p align="center">
+  <a href="https://github.com/Vladislav2505/GameProfileManager/releases">Download</a> ·
+  <a href="https://github.com/Vladislav2505/GameProfileManager/issues">Report an issue</a> ·
+  <a href="#build-from-source">Build from source</a>
+</p>
 
-## Установка
+<p align="center">
+  <a href="https://github.com/Vladislav2505/GameProfileManager/actions/workflows/installer.yml"><img src="https://github.com/Vladislav2505/GameProfileManager/actions/workflows/installer.yml/badge.svg" alt="Windows installer build status"></a>
+</p>
 
-1. Скачайте установщик из [GitHub Releases](https://github.com/Vladislav2505/GameProfileManager/releases). Он предложит выбрать папку установки и создаст ярлык в меню «Пуск».
-2. Установите [RivaTuner Statistics Server](https://www.guru3d.com/download/rtss-rivatuner-statistics-server-download/) и актуальный драйвер NVIDIA отдельно. Для применения профилей RTSS должен быть запущен.
-3. Запустите Game Profile Manager и подтвердите системный запрос прав администратора. Если приложение не нашло RTSS, укажите его папку в **Настройках**. Когда RTSS закрыт, вверху окна появляется предупреждение с кнопкой **«Запустить RTSS»**; она запускает `RTSS.exe` из указанной папки, но не применяет игровые профили автоматически.
+**Platform:** Windows 11 (x64) · **UI:** WinUI 3 / Windows App SDK · **Runtime:** .NET 10 · **Current application version:** 2.0.0
 
-Установщик содержит автономную сборку .NET 10, Windows App SDK и `SDL3.dll`; отдельно устанавливать среды выполнения не нужно. Настройки и резервные значения хранятся в `%LOCALAPPDATA%\GameProfileManager\profiles.db`, вне папки приложения. При установке поверх прежней версии формат базы и путь остаются прежними.
+**Jump to:** [Features](#features) · [Install](#install) · [Quick start](#quick-start) · [Profiles & monitors](#profiles-and-monitors) · [Troubleshooting](#troubleshooting) · [Build](#build-from-source)
 
-Опция **«Запуск с повышением без повторного UAC»** регистрирует задачу Планировщика Windows. Для её настройки приложение должно быть установлено в `Program Files` и запущено от администратора. Переключатель показывает подтверждённое состояние задачи; при отказе в настройке он возвращается в исходное положение и показывает причину.
+## Overview
 
-Для обновления откройте **Настройки → Резервные копии и обновления** и нажмите **«Проверить обновления»**. При наличии новой версии приложение предложит открыть её страницу на GitHub. Скачайте и запустите новый установщик: он предложит обновить файлы в прежней папке. Пользовательская база при обновлении сохраняется. Проверка выполняется только по нажатию; приложение не загружает и не запускает установщик самостоятельно.
+Game Profile Manager applies game-specific settings to **RivaTuner Statistics Server (RTSS)** and **NVIDIA Driver Profile Settings (DRS)**. Set an FPS cap, choose a synchronization mode, and assign a profile to each game's executable. The app reads settings back after applying them and keeps the original values so you can restore them later.
 
-## Первые шаги
+Games continue to launch through Steam, Epic Games Launcher, shortcuts, or their own executables. Game Profile Manager does **not** launch games or track playtime.
 
-1. Импортируйте игры из Steam или Epic Games Store либо добавьте игровой `.exe` вручную. Проверьте выбранный файл, если у игры есть отдельный лаунчер или несколько исполняемых файлов. Название импортированной игры в карточке не редактируется.
-2. В разделе **«Профили»** выберите стандартный профиль или создайте его копию и настройте FPS, V-Sync, режим монитора NVIDIA и режим лимитера RTSS. Стандартные профили защищены от изменения.
-3. В разделе **«Мои игры»** выберите игру и назначьте профиль. Нажмите **«Применить профиль к игре»**; действие **«Применить ко всем»** последовательно обработает всю библиотеку.
-4. Посмотрите статус игры. **«Применён»** означает, что RTSS и NVIDIA подтвердили сохранённые значения при повторном чтении. **«Ожидает»** означает, что выбранные параметры ещё не применены; **«Ошибка»** и **«Недоступно»** сопровождаются причиной в карточке.
+## Features
 
-Изменение выбора в интерфейсе сохраняет конфигурацию приложения. Запись в RTSS и NVIDIA выполняется при применении, а также при включённых автоматических действиях, описанных ниже.
+- **Per-game profiles:** configure FPS limits, NVIDIA G-SYNC/fixed-refresh mode, V-Sync, and the RTSS limiter mode.
+- **Monitor-aware assignments:** use one profile per game or assign different profiles based on the selected Windows display.
+- **Automatic re-evaluation:** detect confirmed display configuration changes and apply the effective profile when needed; optionally check and reapply settings at startup.
+- **Steam and Epic Games imports:** find installed games and select the correct `.exe` when discovery is ambiguous.
+- **Verified application and recovery:** read settings back, store the original RTSS/NVIDIA values, and attempt rollback if an operation fails.
+- **Windows 11 interface:** WinUI 3, system light/dark themes, Mica, adaptive navigation, and system controls.
+- **Controller support:** SDL3 input for Xbox and PlayStation controllers, controller-friendly file selection, and an on-screen keyboard.
+- **System tray and diagnostics:** keep display monitoring active in the tray, inspect integration status, and check for mismatched settings.
 
-В карточке игры кнопка **«Выбрать EXE»** открывает системный выбор файла (с контроллера — доступный ему файловый диалог). При смене EXE приложение сначала восстанавливает исходные параметры прежнего файла, если для него есть резервные значения; при ошибке путь не меняется. **«Восстановить прежние параметры»** возвращает сохранённые значения через очередь применения и после успешного восстановления снимает основной профиль и назначения по мониторам. Если настройки ещё не применялись и резервных значений нет, кнопка только снимает назначения. При закрытом RTSS сначала запустите его из предупреждения вверху окна.
+> [!NOTE]
+> The **Graphics configurations** page is a preview of a planned feature. Saving, assigning, and applying snapshots of game configuration files are **not implemented yet**.
 
-Профили создаются и редактируются на отдельной странице. Изменения остаются черновиком до явного сохранения; при уходе с несохранённой страницы приложение предлагает сохранить или отменить изменения. Раздел графических конфигураций показывает состояние функции: снимки игровых файлов, выбор файлов и применение пока недоступны.
+## Requirements
 
-## Профили и мониторы
-
-В карточке игры есть два режима:
-
-| Режим | Поведение |
+| Component | Requirement |
 | --- | --- |
-| **Один профиль** | Назначенный профиль остаётся тем же при смене монитора. Если FPS задан долей частоты экрана, приложение может пересчитать только лимит FPS. Это режим по умолчанию для существующих игр. |
-| **По монитору** | Можно назначить отдельный профиль каждому экрану. Для экрана без отдельного назначения используется основной профиль игры. |
+| Operating system | **Windows 11 x64** |
+| Graphics driver | NVIDIA GPU with a compatible NVIDIA driver and NVIDIA DRS support |
+| FPS limiter | **[RivaTuner Statistics Server (RTSS)](https://www.guru3d.com/download/rtss-rivatuner-statistics-server-download/)**, installed and running when applying profiles |
+| Permissions | Administrator approval when starting the current version of Game Profile Manager |
+| Runtime | Included in the installer (.NET 10, Windows App SDK, and SDL3) |
 
-В режиме **«По монитору»** правило выбора определяет, какой экран использовать:
+To use G-SYNC, enable it separately in NVIDIA Control Panel. The app configures the **per-game** driver profile; it does not enable global G-SYNC.
 
-| Правило | Как выбирается экран |
+## Install
+
+1. Download the latest installer from **[GitHub Releases](https://github.com/Vladislav2505/GameProfileManager/releases)**.
+2. Install RTSS and make sure your NVIDIA driver is up to date. Start RTSS.
+3. Run the installer, then launch **Game Profile Manager** and approve the Windows administrator prompt.
+4. If RTSS is not detected, open **Settings** and select its installation directory.
+
+The installer is self-contained; installing the .NET runtime or Windows App SDK separately is not necessary. It creates a Start menu shortcut and can optionally create a desktop shortcut.
+
+**Upgrading from 1.x:** Version 2.0 uses WinUI 3 instead of WPF but retains the existing database and profile format. Exit the application completely (including the tray icon) before installing the update. Your data under `%LOCALAPPDATA%\GameProfileManager` is preserved.
+
+## Quick start
+
+1. Open **My games** and import games from Steam/Epic Games or add an `.exe` manually.
+2. Check the selected executable. Some games have separate launchers and multiple executable files.
+3. Open **Profiles**, select an existing preset or **create an editable copy**, and configure its settings. Built-in presets are protected from editing.
+4. Open the game, assign the profile, and select **Apply profile to game**. Use **Apply to all** to process the library sequentially.
+5. Check the reported result. You can use **Diagnostics** to inspect settings without changing them.
+
+**Assigning** a profile stores a preference in the app. **Applying** it writes to RTSS and NVIDIA DRS. They are intentionally separate actions. Automatic application can also occur when enabled and a relevant display configuration change is detected or when startup checks require it.
+
+### Application statuses
+
+| Status | Meaning |
 | --- | --- |
-| **Основной экран Windows** | Текущий основной монитор в настройках Windows. |
-| **Выбранный экран, иначе общий** | Экран из блока «Расчёт FPS»; если он не задан — общий экран приложения, затем основной монитор Windows. |
-| **Только выбранный экран** | Только явно выбранный экран из блока «Расчёт FPS». Если он отключён, автоматическое переключение не выполняется. |
+| **Applied** | RTSS and NVIDIA DRS values match the requested settings when read back. |
+| **Pending** | The chosen settings have not been confirmed as applied. |
+| **Restart required** | External settings were written, but a running game may need to restart. |
+| **Unavailable** | A requirement is missing or the configuration cannot safely be resolved. |
+| **Error** | An operation or verification failed; open the game details for the reason. |
 
-Блок **«Расчёт FPS»** задаёт монитор, по частоте которого вычисляется лимит, если в профиле выбрана доля частоты. Ручной лимит FPS от экрана не зависит. Приложение не определяет, на каком мониторе находится окно игры. Отключённый монитор с сохранённым назначением остаётся в списке с пометкой «отключён»; при неразрешённом выборе внешние настройки не меняются.
+## Profiles and monitors
 
-FPS можно задать числом или долей частоты экрана от `1/1` до `1/12`. Доступны только доли, дающие целый FPS для номинальной частоты. Динамическая частота Windows блокирует расчёт по доле. Приложение проверяет конфигурацию дисплеев примерно раз в две секунды и реагирует на подтверждённое изменение, пока работает в окне или трее. При неизменной итоговой конфигурации RTSS/NVIDIA повторно не записываются. Для уже запущенной игры новые параметры NVIDIA могут потребовать её перезапуска.
+A profile can use a **manual FPS limit (1–1000)** or a **fraction of the display refresh rate (1/1 through 1/12)**. Fractional mode is available only when a supported integer FPS limit can be determined. Windows dynamic refresh rate prevents fraction-based calculation.
 
-## Проверка, резервная копия и восстановление
+Other settings include the NVIDIA per-game refresh technology (G-SYNC allowed or fixed refresh), V-Sync, and an RTSS limiter mode. Game Profile Manager uses RTSS as its FPS limiter and sets the managed NVIDIA frame-rate limiter to disabled (`FRL_FPS = 0`) while applying a profile.
 
-Перед первой записью для игрового `.exe` приложение сохраняет исходные значения RTSS и NVIDIA. При ошибке частичной записи оно пытается откатить изменения. **«Проверить сейчас»** читает настройки и показывает расхождения без исправления. Чтобы вернуть прежние значения, используйте **«Восстановить прежние параметры»** в карточке игры. Если снять назначение профиля, затем примените игру, чтобы восстановить сохранённые значения.
+### Assignment modes
 
-В **Настройках** можно экспортировать копию конфигурации в JSON и включить проверку с повторным применением при запуске. База хранит один JSON-документ в SQLite. Ошибка чтения базы не приводит к сохранению пустой конфигурации поверх неё. Приложение изменяет EXE-профили, а не глобальные профили RTSS/NVIDIA; управляемый драйверный лимитер NVIDIA задаётся как `FRL_FPS = 0` и также включён в механизм восстановления.
+| Mode | Behavior |
+| --- | --- |
+| **One profile** | The same profile is used for the game. A fraction-based FPS limit can still depend on the selected display's refresh rate. |
+| **By monitor** | Assign a profile to each display. If a display has no specific assignment, the game's default profile is used when available. |
 
-## Контроллер и трей
+When using **By monitor**, choose how the relevant display is determined:
 
-Интерфейс WinUI 3 поддерживает контроллеры через SDL3 и определяет раскладку подключённого геймпада. Для DualSense подсказки показывают ✕/○/□/△ и L1/R1; для Xbox — A/B/X/Y и LB/RB. Крестовина и левый стик перемещают фокус, правый стик и триггеры прокручивают страницу, ✕/A подтверждает действие, ○/B возвращает назад. В раскрытом списке крестовина меняет пункт, а ○/B закрывает список, оставаясь на странице. Для выбора EXE доступен встроенный WinUI-браузер файлов, для ввода текста — экранная клавиатура.
+| Display selection | Behavior |
+| --- | --- |
+| **Windows primary display** | Uses the display currently marked as primary in Windows. |
+| **Selected display, otherwise default** | Uses the game's selected display; otherwise the app's default display, then the Windows primary display. |
+| **Selected display only** | Requires the explicitly selected display; no automatic fallback when it is disconnected. |
 
-В **Настройках** можно включить сворачивание в трей: тогда проверка экранов продолжается после закрытия окна. При включённом автозапуске вместе с Windows приложение запускается в трее без разворачивания окна; обычный запуск через ярлык открывает окно. Полный выход доступен через меню значка Windows Shell.
+The application checks the Windows display configuration periodically, including while minimized to the tray. **It does not detect which monitor a game's window is on**, and it does not change Windows resolution, refresh rate, or HDR settings.
 
-Приложение учитывает масштаб Windows для каждого монитора (Per-Monitor V2 DPI awareness). Штатный `NavigationView` сворачивается при сужении окна; панели перестраиваются по эффективной ширине 1200/930 epx без масштабирования содержимого. Минимальный размер окна — 960 × 560 epx. Новая установка использует системную светлую или тёмную тему; сохранённый выбор `Dark`/`Light` остаётся в силе.
+## Safety, backups, and diagnostics
 
-## Требования и ограничения
+Before first modifying settings for a game's executable, Game Profile Manager saves the values that were already present in RTSS and NVIDIA DRS. If only part of an operation succeeds, it attempts to roll the changes back. Writes are followed by readback verification.
 
-- Нужны Windows 11 x64, видеокарта NVIDIA с поддерживаемым драйвером и установленный RTSS. RTSS должен работать во время применения и игры. Для G-SYNC его нужно отдельно включить глобально в панели NVIDIA: профиль приложения разрешает использование G-SYNC для конкретной игры, но не включает глобальную функцию.
-- Повторное чтение подтверждает сохранение значений RTSS/NVIDIA DRS, но не измеряет фактический FPS и не доказывает, что VRR активировался внутри игры. Лимитер самой игры и настройки сторонних программ приложение не контролирует.
-- Приложение не меняет разрешение, частоту, HDR или другие настройки Windows и не запускает игры. Экран игры не определяется по положению её окна.
-- Если в библиотеку добавлены разные игры с одинаковым именем `.exe`, запись RTSS блокируется во избежание неоднозначного назначения.
+- **Check now / Diagnostics** reads external settings without fixing them.
+- **Restore original settings** restores the captured values; after a successful restore, the app can also clear the game's assignments.
+- **Export backup** in Settings creates a JSON copy of the application configuration.
+- If an executable path changes and a backup exists for the old path, the app attempts to restore the old settings before accepting the new path.
 
-## Для разработчиков
+**What verification means:** A successful readback proves that RTSS and NVIDIA DRS report the expected values. It does **not** measure actual in-game FPS or prove that VRR is active during gameplay.
 
-WinUI 3-приложение находится в `src/GameProfileManager/`, независимые модели и логика — в `src/GameProfileManager.Engine/`, проверки — в `tests/`, проект установщика — в `installer/`. Решение: `GameProfileManager.slnx`. Сборка требует Windows 11 и .NET SDK 10. Версия Windows App SDK закреплена в проекте приложения.
+> [!IMPORTANT]
+> Game Profile Manager modifies game-specific external settings. Close running games before changing driver settings when possible, and keep a backup of your configuration. Restoring the originals may require RTSS to be running.
 
-Монохромный значок для EXE, заголовка окна и трея находится в `src/GameProfileManager/Assets/gameprofilemanager_monochrome.ico`. В заголовке он выводится размером 32×32 epx через `TitleBar.LeftHeader`. В той же папке сохранены цветная и монохромная версии SVG, PNG и ICO. Исходный архив концепта не требуется для сборки.
+## Controller and system tray
 
-Обзор показывает реальные состояния RTSS/NVIDIA, основной дисплей, счётчики и последние игры. В библиотеке и на странице игры отображаются изображения Steam или иконки EXE с закруглёнными краями; при отсутствии изображения используется штатный значок WinUI. Список игр подписывает профиль, режим, лимит FPS и состояние. Кнопки добавления и импорта расположены над списком. Штатная стрелка навигации всегда видна: на внутренних страницах она возвращает назад, на верхних разделах неактивна. Также работают Escape, Alt+←, Backspace вне текстовых полей, клавиша «Назад» и боковая кнопка мыши. Интерфейс рассчитан на окно ноутбука от 960×560 epx, а при уменьшении ширины перестраивает панели. Длительные действия показывают общий индикатор ожидания вверху окна. Редактор профиля использует черновик: сохранение в SQLite и применение RTSS/NVIDIA выполняются разными действиями.
+SDL3 handles controller input, with Xbox-style labels or PlayStation button labels (including DualSense) as appropriate.
+
+| Control | Action |
+| --- | --- |
+| D-pad / left stick | Move focus |
+| A / ✕ | Select or activate |
+| B / ○ | Go back or close a drop-down |
+| LB / RB · L1 / R1 | Switch top-level sections |
+| Triggers / right stick | Scroll |
+| On-screen keyboard | Enter text without a physical keyboard |
+
+Use **Settings** to enable minimizing to the system tray and configure Windows startup. When the app is in the tray, display monitoring continues. Exit completely from the tray menu.
+
+The interface follows Windows display scaling (Per-Monitor V2 DPI) and the system theme; Light and Dark overrides are available. The current build has a minimum window size of **960 × 560 effective pixels**.
+
+## Updates and data
+
+- **Updates:** Open **Settings → Backups and updates → Check for updates**. This performs an on-demand check of the latest GitHub Release. Download and install updates manually; the app does not automatically install them.
+- **Database:** `%LOCALAPPDATA%\GameProfileManager\profiles.db` — SQLite storing one JSON state document, including assignments and captured settings.
+- **Error log:** `%LOCALAPPDATA%\GameProfileManager\errors.log`.
+- **Exported backups:** JSON files saved in the same application data directory.
+- **Compatibility:** Version 2.0 preserves data from version 1.x. An unreadable database is not silently overwritten with a new empty state.
+
+An optional **elevated launch without repeated UAC** feature uses a Windows Task Scheduler task. Configuring it requires an administrative launch and installation under `Program Files`.
+
+## Limitations
+
+- **NVIDIA + RTSS only:** other GPU driver profile systems are not supported.
+- **Not a game launcher:** no game launching, playtime tracking, or game-version management.
+- **No display switching:** resolution, refresh rate, HDR, and Windows display topology are not changed.
+- **No live VRR/FPS telemetry:** driver/RTSS setting readback is not an in-game performance measurement.
+- **RTSS executable-name matching:** different games with the same `.exe` filename can cause ambiguous RTSS profiles; the app blocks unsafe writes.
+- **Graphics configuration snapshots are not available yet.**
+
+## Troubleshooting
+
+**RTSS is not detected or is closed.** Confirm RTSS is installed and running, then select the RTSS directory in **Settings**. If the warning offers **Start RTSS**, use it and recheck the game; starting RTSS alone does not automatically apply the selected profile.
+
+**A game stays Pending or Unavailable.** Confirm the game's actual `.exe`, the assigned profile, the display selection, and the RTSS/NVIDIA status in **Diagnostics**. An automatically calculated FPS limit may be unavailable for a dynamic or unsupported refresh rate.
+
+**The game needs a restart.** Changes to NVIDIA driver settings may not affect a game that is already running. Close and reopen the game, then verify the saved settings.
+
+**Two games use the same executable filename.** RTSS profiles are identified by filename. Choose distinct executable names where possible; the app intentionally prevents ambiguous writes.
+
+For reproducible bugs, see [Issues](https://github.com/Vladislav2505/GameProfileManager/issues).
+
+## Build from source
+
+**Prerequisites:** Windows 11, [.NET SDK 10](https://dotnet.microsoft.com/download/dotnet/10.0), and optionally [Inno Setup](https://jrsoftware.org/isdl.php) to build the installer. Restore downloads the Windows App SDK NuGet dependencies automatically.
 
 ```powershell
+# From the repository root
 dotnet build .\GameProfileManager.slnx -c Release
+
+# Unit / domain checks (no real RTSS/NVIDIA writes)
 dotnet run --project .\tests\GameProfileManager.Tests -c Release
+
+# Integration checks (read-only by default; may inspect local RTSS/NVIDIA)
 dotnet run --project .\tests\GameProfileManager.IntegrationTests -c Release
 
+# UI smoke tests, using fake external clients and temporary state
 $smoke = Join-Path .\artifacts ("ui-smoke-" + [guid]::NewGuid().ToString("N"))
 dotnet run --project .\tests\GameProfileManager.UITests -c Release -- $smoke
 ```
 
-Консольные проекты запускаются через `dotnet run`. Интеграционная диагностика без дополнительных флагов читает RTSS/NVIDIA. Флаги `--write-test`, `--nvidia-write-test` и `--sync-test` выполняют запись и не предназначены для обычной проверки. WinUI UI Smoke требует интерактивной Windows-сессии и нового каталога для каждого запуска: он создаёт временную SQLite, запускает приложение с fake-клиентами RTSS/NVIDIA, проходит страницы и проверяет отсутствие внешних записей при навигации.
+UI smoke tests require an interactive Windows desktop session. **Do not use** integration test flags `--write-test`, `--nvidia-write-test`, or `--sync-test` against live RTSS/NVIDIA unless you explicitly intend to modify settings.
 
-Для проверки приложения из опубликованной папки без установщика:
+Create a self-contained unpackaged build:
 
 ```powershell
-dotnet publish .\src\GameProfileManager\GameProfileManager.csproj -c Release -r win-x64 --self-contained true -p:WindowsAppSDKSelfContained=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o .\artifacts\test-exe
-Test-Path .\artifacts\test-exe\GameProfileManager.pri
-& .\artifacts\test-exe\GameProfileManager.exe
+dotnet publish .\src\GameProfileManager\GameProfileManager.csproj `
+  -c Release -r win-x64 --self-contained true `
+  -p:WindowsAppSDKSelfContained=true `
+  -p:PublishSingleFile=false -p:PublishTrimmed=false `
+  -o .\artifacts\test-exe
 ```
 
-`Test-Path` должен вернуть `True`: проектный файл ресурсов WinUI обязателен для запуска. Переносите всю папку `test-exe`, а не один EXE. Обычный запуск запрашивает права администратора и использует локальную базу пользователя; для безопасной автоматической проверки используйте UI Smoke выше.
+Run `GameProfileManager.exe` from the **entire published directory**; do not copy only the executable. `GameProfileManager.pri`, Windows App SDK libraries, and SDL3 are needed at runtime.
 
-Чтобы проверить запуск именно опубликованной сборки с fake-клиентами и временной SQLite, передайте UI Smoke второй аргумент: `dotnet run --project .\tests\GameProfileManager.UITests -c Release -- $smoke .\artifacts\test-exe\GameProfileManager.exe` (с новым пустым каталогом `$smoke`).
-
-Для локальной сборки EXE-установщика также установите [Inno Setup 6](https://jrsoftware.org/isdl.php):
+To build the installer (requires Inno Setup 6/7):
 
 ```powershell
 .\scripts\build-installer.ps1
 ```
 
-Готовый файл появится в `artifacts\installer`. При необходимости передайте путь к `ISCC.exe` через `-InnoCompiler`. Unpackaged-публикация содержит .NET 10, файлы Windows App SDK и SDL3; локальные сборки, журналы и пользовательская база исключены из Git.
+The installer is written to `artifacts\installer`. You can specify the compiler path with `-InnoCompiler`.
 
-### Новый выпуск
+### Project structure
 
-1. Увеличьте `<Version>` в `src/GameProfileManager/GameProfileManager.csproj` и отправьте коммит в `main`.
-2. Создайте тег с тем же номером, например `git tag -a v2.0.0 -m "Game Profile Manager 2.0.0"`.
-3. Отправьте тег командой `git push origin v2.0.0`.
+```text
+GameProfileManager.slnx
+src/
+  GameProfileManager/          # WinUI 3 UI, input, tray, and source modules
+    Core/                     # Domain models
+    Application/              # Synchronization and profile resolution
+    Infrastructure/           # SQLite persistence
+    Integrations/             # NVIDIA, RTSS, Steam/Epic, displays
+    Native/                   # SDL3 binary and its license
+    Assets/                   # Application icon assets
+  GameProfileManager.Engine/   # Engine project linking the modules above
+tests/                       # Unit, integration, and WinUI smoke checks
+installer/                   # Inno Setup configuration
+scripts/                     # Installer build and performance measurements
+.github/workflows/           # Windows installer CI
+```
 
-Workflow `.github/workflows/installer.yml` проверит соответствие тега версии приложения, соберёт установщик и создаст GitHub Release с ним. Повторный запуск загрузит установщик в существующий выпуск; описание нового выпуска создаётся автоматически по изменениям. Версия в настройках приложения сравнивается с последним опубликованным Release.
+Core, application, infrastructure, and integration source files are linked into the separate `GameProfileManager.Engine` assembly by its project file.
 
-Для исходников проекта отдельная лицензия пока не указана. Лицензия включённой `SDL3.dll` находится в `src/GameProfileManager/Native/SDL3-LICENSE.txt`.
+### Releases
+
+The [Windows installer workflow](.github/workflows/installer.yml) builds on pushes to `main` and `v*` tags. To publish a version, update `<Version>` in `src/GameProfileManager/GameProfileManager.csproj`, push the commit, then push a matching version tag (for example, `v2.0.0`). The workflow publishes the installer to GitHub Releases.
+
+## Contributing and support
+
+- Found a bug, unexpected setting change, or compatibility issue? [Open an issue](https://github.com/Vladislav2505/GameProfileManager/issues) with your Windows version, NVIDIA driver, RTSS version, reproduction steps, and relevant error details.
+- For proposed changes, review [AGENTS.md](AGENTS.md) and keep existing database formats and safe readback/rollback behavior intact.
+- Do not attach passwords, personal information, or unrelated system logs to issues.
+
+## License
+
+**No project-wide license is currently included in this repository.** Public access to source code does not automatically grant permission to redistribute or modify it. The bundled SDL3 binary has its own license in [`src/GameProfileManager/Native/SDL3-LICENSE.txt`](src/GameProfileManager/Native/SDL3-LICENSE.txt).
