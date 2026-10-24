@@ -73,6 +73,8 @@ public sealed partial class MainWindow : Window
         _controllerInput.StatusChanged += UpdateControllerStatus;
         _controllerInput.Start();
         _viewModel.PickLocalFileAsync = PickLocalFileAsync;
+        RootLayout.SizeChanged += (_, args) =>
+            AppTitleText.Visibility = args.NewSize.Width < 640 ? Visibility.Collapsed : Visibility.Visible;
         RootLayout.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), true);
         RootLayout.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         Navigate("overview");
@@ -630,7 +632,8 @@ public sealed partial class MainWindow : Window
         if (!importReturnWorks) throw new InvalidOperationException("Import return navigation failed.");
         var actualSizes = new List<string>();
         bool firstSize = true;
-        foreach (var size in new[] { (1280, 720), (1024, 768), (960, 560) })
+        bool narrowSizeAccepted = true;
+        foreach (var size in new[] { (1440, 900), (1280, 720), (1024, 768), (800, 600), (640, 720), (420, 680) })
         {
             AppWindow.Resize(SmokePixels(size.Item1, size.Item2));
             if (firstSize)
@@ -641,14 +644,22 @@ public sealed partial class MainWindow : Window
             }
             else await Task.Delay(650);
             actualSizes.Add($"{AppWindow.Size.Width}x{AppWindow.Size.Height}");
+            if (size.Item1 <= 640)
+                narrowSizeAccepted &= AppWindow.Size.Width <= SmokePixels(size.Item1 + 5, size.Item2).Width;
             await CaptureAsync(Path.Combine(screenshotDirectory, $"Light-overview-{size.Item1}x{size.Item2}.png"));
         }
-        foreach (string route in new[] { "games", "game", "profile-new" })
+        foreach (var size in new[] { (960, 560), (640, 720), (420, 680) })
         {
-            Navigate(route, route == "game" ? gameId : null);
-            await WaitForRouteAsync(route);
-            await CaptureAsync(Path.Combine(screenshotDirectory, $"Light-{route}-960x560.png"));
+            AppWindow.Resize(SmokePixels(size.Item1, size.Item2));
+            foreach (string route in new[] { "games", "game", "profile-new" })
+            {
+                Navigate(route, route == "game" ? gameId : null);
+                await WaitForRouteAsync(route);
+                await CaptureAsync(Path.Combine(screenshotDirectory,
+                    $"Light-{route}-{size.Item1}x{size.Item2}.png"));
+            }
         }
+        if (!narrowSizeAccepted) throw new InvalidOperationException("Compact window width was clamped above requested Snap size.");
         var gameForActions = _viewModel.Games.First();
         Navigate("game", gameForActions.Id);
         await WaitForRouteAsync("game");
@@ -721,7 +732,7 @@ public sealed partial class MainWindow : Window
                 controllerFocusAndAcceptWorks, dualSenseLayoutWorks, controllerDropdownCloses, controllerMenuWorks,
                 monitorAppearsImmediately, exeSelectionWorks, restoreClearsProfile,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
-                actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,
+                actualSizes, narrowSizeAccepted, widePairs, draftIsolated, editorSaved, discardPreserved,
                 responsiveWidth = Descendants(ContentFrame).OfType<Grid>()
                     .Where(grid => grid.Name == "ResponsivePair").Select(grid => grid.ActualWidth).ToArray() },
                 new JsonSerializerOptions { WriteIndented = true }), Encoding.UTF8);

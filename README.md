@@ -146,7 +146,7 @@ SDL3 handles controller input, with Xbox-style labels or PlayStation button labe
 
 Use **Settings** to enable minimizing to the system tray and configure Windows startup. When the app is in the tray, display monitoring continues. Exit completely from the tray menu.
 
-The interface follows Windows display scaling (Per-Monitor V2 DPI) and the system theme; Light and Dark overrides are available. The current build has a minimum window size of **960 × 560 effective pixels**.
+The interface follows Windows display scaling (Per-Monitor V2 DPI) and the system theme; Light and Dark overrides are available. The current build has a minimum window size of **420 × 560 effective pixels**. At compact widths, cards, game rows, profile details, and action buttons stack vertically; long pages scroll. The WinUI title bar retains native caption controls.
 
 ## Updates and data
 

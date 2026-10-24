@@ -109,11 +109,30 @@ internal static partial class PageFactory
         return button;
     }
 
-    private static StackPanel Buttons(params Button[] buttons)
+    private static Grid Buttons(params Button[] buttons)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        foreach (var button in buttons) row.Children.Add(button);
-        return row;
+        var grid = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+        foreach (var button in buttons)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.Children.Add(button);
+        }
+        void Arrange(double width)
+        {
+            bool horizontal = width >= 900;
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                grid.ColumnDefinitions[i].Width = horizontal ? GridLength.Auto
+                    : i == 0 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+                Grid.SetColumn(buttons[i], horizontal ? i : 0);
+                Grid.SetRow(buttons[i], horizontal ? 0 : i);
+                buttons[i].HorizontalAlignment = horizontal ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+            }
+        }
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
+        return grid;
     }
 
     private static UIElement ResponsivePair(FrameworkElement first, FrameworkElement second,
@@ -144,11 +163,12 @@ internal static partial class PageFactory
     {
         var grid = new Grid { ColumnSpacing = 16, RowSpacing = 16 };
         for (int i = 0; i < 3; i++) grid.ColumnDefinitions.Add(new ColumnDefinition());
-        for (int i = 0; i < 3; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (int i = 0; i < cards.Length; i++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         foreach (var card in cards) grid.Children.Add(card);
         void Arrange(double width)
         {
-            int columns = width >= 1000 ? 3 : 2;
+            int columns = width >= 1050 ? 3 : width >= 650 ? 2 : 1;
+            grid.ColumnDefinitions[1].Width = columns >= 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
             grid.ColumnDefinitions[2].Width = columns == 3 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
             for (int i = 0; i < cards.Length; i++)
             {
@@ -209,12 +229,25 @@ internal static partial class PageFactory
 
     private static UIElement DetailRow(string label, TextBlock value)
     {
-        var grid = new Grid { ColumnSpacing = 16, MinHeight = 38 };
+        var grid = new Grid { ColumnSpacing = 16, RowSpacing = 4, MinHeight = 38 };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
         grid.Children.Add(Secondary(label));
         Grid.SetColumn(value, 1);
         grid.Children.Add(value);
+        void Arrange(double width)
+        {
+            bool narrow = width < 380;
+            grid.ColumnDefinitions[0].Width = narrow ? new GridLength(1, GridUnitType.Star) : new GridLength(150);
+            grid.ColumnDefinitions[1].Width = narrow ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+            grid.RowDefinitions[1].Height = narrow ? GridLength.Auto : new GridLength(0);
+            Grid.SetColumn(value, narrow ? 0 : 1);
+            Grid.SetRow(value, narrow ? 1 : 0);
+        }
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
         return grid;
     }
 
@@ -278,10 +311,12 @@ internal static partial class PageFactory
     private static UIElement GameHeader(RouteRequest request, GameEntry game)
     {
         var card = Vm(request).GameCards.FirstOrDefault(item => item.Id == game.Id);
-        var row = new Grid { ColumnSpacing = 16 };
+        var row = new Grid { ColumnSpacing = 16, RowSpacing = 8 };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        row.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0) });
         row.Children.Add(GameIcon(card, 56));
         var identity = Column(Strong(game, nameof(GameEntry.Name)), Secondary(game, nameof(GameEntry.ExeDisplay)));
         Grid.SetColumn(identity, 1);
@@ -290,6 +325,17 @@ internal static partial class PageFactory
         state.HorizontalAlignment = HorizontalAlignment.Right;
         Grid.SetColumn(state, 2);
         row.Children.Add(state);
+        void Arrange(double width)
+        {
+            bool narrow = width < 600;
+            row.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : GridLength.Auto;
+            row.RowDefinitions[1].Height = narrow ? GridLength.Auto : new GridLength(0);
+            state.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+            Grid.SetColumn(state, narrow ? 1 : 2);
+            Grid.SetRow(state, narrow ? 1 : 0);
+        }
+        row.Loaded += (_, _) => Arrange(row.ActualWidth);
+        row.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
         return Column(Card(row), GameTabs(request, game));
     }
 

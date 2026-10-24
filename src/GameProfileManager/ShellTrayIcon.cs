@@ -62,7 +62,7 @@ internal sealed class ShellTrayIcon : IDisposable
             IntPtr result = DefSubclassProc(window, message, wParam, lParam);
             var info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             uint dpi = GetDpiForWindow(window);
-            int minWidth = (int)Math.Ceiling(960d * dpi / 96d);
+            int minWidth = (int)Math.Ceiling(420d * dpi / 96d);
             int minHeight = (int)Math.Ceiling(560d * dpi / 96d);
             info.MinTrackSize.X = Math.Max(info.MinTrackSize.X, minWidth);
             info.MinTrackSize.Y = Math.Max(info.MinTrackSize.Y, minHeight);

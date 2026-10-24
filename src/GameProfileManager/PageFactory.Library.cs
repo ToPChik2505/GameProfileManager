@@ -66,15 +66,10 @@ internal static partial class PageFactory
         var content = new Grid { ColumnSpacing = 12 };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition());
-        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.Children.Add(GameIcon(game, 38));
-        var name = Column(Strong(game.Name), Secondary(game.ProfileDisplay));
+        var name = Column(Strong(game.Name), Secondary(game.ProfileDisplay), Secondary(game.StatusLabel));
         Grid.SetColumn(name, 1);
         content.Children.Add(name);
-        var status = Secondary(game.StatusLabel);
-        status.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(status, 2);
-        content.Children.Add(status);
         var button = new Button { Content = content, Tag = open, MinHeight = 58,
             HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
         button.Click += (_, _) => open();
@@ -84,7 +79,7 @@ internal static partial class PageFactory
     private static PageComposition Games(RouteRequest request)
     {
         var vm = Vm(request);
-        var search = new TextBox { PlaceholderText = "Поиск игр или EXE", Text = vm.Search, MinWidth = 240 };
+        var search = new TextBox { PlaceholderText = "Поиск игр или EXE", Text = vm.Search };
         search.TextChanged += (_, _) => vm.Search = search.Text;
         var list = new ListView
         {
@@ -115,6 +110,17 @@ internal static partial class PageFactory
             Grid.SetColumn(label, column);
             headers.Children.Add(label);
         }
+        var regularTemplate = list.ItemTemplate;
+        var compactTemplate = (DataTemplate)Microsoft.UI.Xaml.Application.Current.Resources["CompactGameRowTemplate"];
+        void ArrangeList(double width)
+        {
+            bool compact = width < 760;
+            headers.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            var template = compact ? compactTemplate : regularTemplate;
+            if (!ReferenceEquals(list.ItemTemplate, template)) list.ItemTemplate = template;
+        }
+        list.Loaded += (_, _) => ArrangeList(list.ActualWidth);
+        list.SizeChanged += (_, args) => ArrangeList(args.NewSize.Width);
         return Shell("Мои игры", "Настройки игр и их профилей, без запуска игр",
             ResponsivePair(Field("Поиск", search), Field("Статус", Choice(
                 vm.StatusFilters.Select(item => new ModeOption<string>(item, item)), vm.StatusFilter,
@@ -295,6 +301,15 @@ internal static partial class PageFactory
             SelectionMode = ListViewSelectionMode.Single, MinHeight = 180,
             SelectedItem = vm.SelectedProfile
         };
+        var regularTemplate = list.ItemTemplate;
+        var compactTemplate = (DataTemplate)Microsoft.UI.Xaml.Application.Current.Resources["CompactProfileRowTemplate"];
+        void ArrangeList(double width)
+        {
+            var template = width < 400 ? compactTemplate : regularTemplate;
+            if (!ReferenceEquals(list.ItemTemplate, template)) list.ItemTemplate = template;
+        }
+        list.Loaded += (_, _) => ArrangeList(list.ActualWidth);
+        list.SizeChanged += (_, args) => ArrangeList(args.NewSize.Width);
         var selectedName = new TextBlock { Style = Style("SubtitleTextBlockStyle") };
         var selectedDescription = Secondary("");
         var selectedFps = Strong("");

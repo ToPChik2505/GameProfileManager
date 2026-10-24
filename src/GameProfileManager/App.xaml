@@ -88,6 +88,30 @@
         </Border>
       </Grid>
     </DataTemplate>
+    <DataTemplate x:Key="CompactGameRowTemplate">
+      <Grid Padding="10" ColumnSpacing="10" RowSpacing="5" MinHeight="90">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Border Width="40" Height="40" Background="{ThemeResource ControlFillColorDefaultBrush}" CornerRadius="8">
+          <Grid>
+            <FontIcon Glyph="&#xE7F1;" FontSize="18" />
+            <Image Source="{Binding Icon}" Width="40" Height="40" Stretch="UniformToFill" />
+          </Grid>
+        </Border>
+        <StackPanel Grid.Column="1" Spacing="2">
+          <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ExeName}" Style="{ThemeResource CaptionTextBlockStyle}"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+          <TextBlock Text="{Binding ProfileDisplay}" Style="{ThemeResource BodyTextBlockStyle}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding ProfileListDetail}" Style="{ThemeResource CaptionTextBlockStyle}"
+                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding FpsListDisplay}" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding StatusLabel}" Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Grid>
+    </DataTemplate>
     <DataTemplate x:Key="ProfileRowTemplate">
       <Grid Padding="12,10" ColumnSpacing="12" MinHeight="62">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
@@ -99,6 +123,14 @@
         <TextBlock Grid.Column="1" Text="{Binding FpsPreview}" VerticalAlignment="Center"
                    Style="{ThemeResource BodyTextBlockStyle}" TextTrimming="CharacterEllipsis" />
       </Grid>
+    </DataTemplate>
+    <DataTemplate x:Key="CompactProfileRowTemplate">
+      <StackPanel Padding="10" Spacing="3" MinHeight="62">
+        <TextBlock Text="{Binding Name}" Style="{ThemeResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+        <TextBlock Text="{Binding ListDetail}" Style="{ThemeResource CaptionTextBlockStyle}"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
+        <TextBlock Text="{Binding FpsPreview}" Style="{ThemeResource BodyTextBlockStyle}" TextWrapping="Wrap" />
+      </StackPanel>
     </DataTemplate>
     </ResourceDictionary>
   </Application.Resources>

@@ -64,11 +64,12 @@ if (root.GetProperty("routes").GetArrayLength() != 15 ||
     !root.GetProperty("draftIsolated").GetBoolean() ||
     !root.GetProperty("editorSaved").GetBoolean() ||
     !root.GetProperty("discardPreserved").GetBoolean() ||
+    !root.GetProperty("narrowSizeAccepted").GetBoolean() ||
     root.GetProperty("externalWriteAttempts").GetInt32() != 0 ||
-    root.GetProperty("screenshots").GetInt32() != 39)
+    root.GetProperty("screenshots").GetInt32() != 48)
     throw new InvalidOperationException("WinUI UI Smoke assertions failed.");
 Console.WriteLine("PASS WinUI launched with temporary SQLite and fake integration clients");
-Console.WriteLine("PASS 15 routes in both themes, overview at 3 laptop sizes, games/game/editor at minimum size");
+Console.WriteLine("PASS 15 routes in both themes, overview at 6 sizes, games/game/editor at 960, 640, and 420 epx");
 Console.WriteLine("PASS graphics unavailable and no external writes during navigation");
 Console.WriteLine("PASS game EXE icon extraction and WinUI binding");
 Console.WriteLine("PASS title icon, compact sidebar, labeled game data and shared activity loader");

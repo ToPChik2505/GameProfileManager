@@ -13,7 +13,7 @@
                     IsHitTestVisible="False">
           <Image Source="ms-appx:///Assets/gameprofilemanager_monochrome.png"
                  Width="32" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
-          <TextBlock Text="GameProfileManager" Style="{ThemeResource BodyTextBlockStyle}"
+          <TextBlock x:Name="AppTitleText" Text="GameProfileManager" Style="{ThemeResource BodyTextBlockStyle}"
                      VerticalAlignment="Center" />
         </StackPanel>
       </TitleBar.LeftHeader>
@@ -52,7 +52,7 @@
         </StackPanel>
         <Frame x:Name="ContentFrame" Grid.Row="1" />
         <TextBlock x:Name="ControllerLegend" Grid.Row="2" Text="A — выбрать     B — назад     LB/RB — разделы     D-pad — перемещение"
-                   Style="{ThemeResource CaptionTextBlockStyle}" Margin="24,8,24,12" Visibility="Collapsed" />
+                   Style="{ThemeResource CaptionTextBlockStyle}" TextWrapping="Wrap" Margin="24,8,24,12" Visibility="Collapsed" />
       </Grid>
     </NavigationView>
   </Grid>
