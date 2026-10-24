@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
         ThemeManager.Apply(viewModel.Theme);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        AppWindow.Title = "GameProfileManager";
+        AppWindow.Title = "GPM — Game Profile Manager";
         AppWindow.SetIcon("Assets/GpmBranding/ICO/gpm_dark.ico");
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
@@ -70,7 +70,7 @@ public sealed partial class MainWindow : Window
         _controllerInput.Start();
         _viewModel.PickLocalFileAsync = PickLocalFileAsync;
         RootLayout.SizeChanged += (_, args) =>
-            AppTitleText.Visibility = args.NewSize.Width < 640 ? Visibility.Collapsed : Visibility.Visible;
+            AppTitleFullName.Visibility = args.NewSize.Width < 640 ? Visibility.Collapsed : Visibility.Visible;
         RootLayout.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), true);
         RootLayout.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnRootPointerPressed), true);
         Navigate("overview");
@@ -204,6 +204,9 @@ public sealed partial class MainWindow : Window
     }
 
     private void NavView_BackRequested(NavigationView sender, NavigationViewBackRequestedEventArgs args) => GoBack();
+
+    private void PaneToggleButton_Click(object sender, RoutedEventArgs args) =>
+        NavView.IsPaneOpen = !NavView.IsPaneOpen;
 
     public async void Navigate(string route, Guid? itemId = null)
     {

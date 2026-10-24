@@ -9,17 +9,28 @@
     </Grid.RowDefinitions>
     <TitleBar x:Name="AppTitleBar">
       <TitleBar.LeftHeader>
-        <StackPanel Orientation="Horizontal" Spacing="10" Margin="16,0,0,0" VerticalAlignment="Center"
-                    IsHitTestVisible="False">
+        <StackPanel Orientation="Horizontal" Spacing="12" Margin="4,0,0,0" VerticalAlignment="Center">
+          <Button x:Name="PaneToggleButton" Width="40" Height="40" Padding="0"
+                  Background="Transparent" BorderThickness="0"
+                  AutomationProperties.Name="Свернуть или развернуть боковое меню"
+                  Click="PaneToggleButton_Click">
+            <FontIcon Glyph="&#xE700;" FontSize="20" />
+          </Button>
           <Image Source="ms-appx:///Assets/GpmBranding/PNG/gpm_dark_128.png"
-                 Width="32" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
-          <TextBlock x:Name="AppTitleText" Text="GameProfileManager" Style="{ThemeResource BodyTextBlockStyle}"
+                 Width="28" Height="28" Stretch="Uniform" VerticalAlignment="Center"
+                 IsHitTestVisible="False" />
+          <TextBlock Text="GPM" Style="{ThemeResource BodyTextBlockStyle}" FontWeight="SemiBold"
+                     VerticalAlignment="Center" IsHitTestVisible="False" />
+          <TextBlock x:Name="AppTitleFullName" Text="Game Profile Manager"
+                     Style="{ThemeResource BodyTextBlockStyle}" Opacity="0.78"
+                     IsHitTestVisible="False"
                      VerticalAlignment="Center" />
         </StackPanel>
       </TitleBar.LeftHeader>
     </TitleBar>
     <NavigationView x:Name="NavView" Grid.Row="1" PaneDisplayMode="Auto"
                     OpenPaneLength="248" CompactPaneLength="64"
+                    IsPaneToggleButtonVisible="False"
                     IsBackButtonVisible="Visible" IsBackEnabled="False" IsSettingsVisible="True"
                     SelectionChanged="NavView_SelectionChanged"
                     BackRequested="NavView_BackRequested">

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src/GameProfileManager/Assets/GpmBranding/PNG/gpm_dark_256.png" alt="Game Profile Manager icon" width="96" height="96">
+  <img src="src/GameProfileManager/Assets/GpmBranding/PNG/gpm_dark_256.png" alt="GPM icon" width="96" height="96">
 </p>
 
-<h1 align="center">Game Profile Manager</h1>
+<h1 align="center">GPM — Game Profile Manager</h1>
 
 <p align="center">
   Manage per-game FPS limits, NVIDIA driver settings, and RTSS profiles on Windows 11.
@@ -27,14 +27,15 @@
 **Platform:** Windows 11 (x64) · **UI:** WinUI 3 / Windows App SDK · **Runtime:** .NET 10 · **Current application version:** 2.0.0
 
 The approved dark application icon is used in Light, Dark, and System themes.
+The title bar shows GPM with its full name; the menu button there opens or closes the sidebar.
 
 **Jump to:** [Features](#features) · [Install](#install) · [Quick start](#quick-start) · [Profiles & monitors](#profiles-and-monitors) · [Troubleshooting](#troubleshooting) · [Build](#build-from-source)
 
 ## Overview
 
-Game Profile Manager applies game-specific settings to **RivaTuner Statistics Server (RTSS)** and **NVIDIA Driver Profile Settings (DRS)**. Set an FPS cap, choose a synchronization mode, and assign a profile to each game's executable. The app reads settings back after applying them and keeps the original values so you can restore them later.
+GPM applies game-specific settings to **RivaTuner Statistics Server (RTSS)** and **NVIDIA Driver Profile Settings (DRS)**. Set an FPS cap, choose a synchronization mode, and assign a profile to each game's executable. The app reads settings back after applying them and keeps the original values so you can restore them later.
 
-Games continue to launch through Steam, Epic Games Launcher, shortcuts, or their own executables. Game Profile Manager does **not** launch games or track playtime.
+Games continue to launch through Steam, Epic Games Launcher, shortcuts, or their own executables. GPM does **not** launch games or track playtime.
 
 ## Features
 
@@ -57,7 +58,7 @@ Games continue to launch through Steam, Epic Games Launcher, shortcuts, or their
 | Operating system | **Windows 11 x64** |
 | Graphics driver | NVIDIA GPU with a compatible NVIDIA driver and NVIDIA DRS support |
 | FPS limiter | **[RivaTuner Statistics Server (RTSS)](https://www.guru3d.com/download/rtss-rivatuner-statistics-server-download/)**, installed and running when applying profiles |
-| Permissions | Administrator approval when starting the current version of Game Profile Manager |
+| Permissions | Administrator approval when starting the current version of GPM |
 | Runtime | Included in the installer (.NET 10, Windows App SDK, and SDL3) |
 
 To use G-SYNC, enable it separately in NVIDIA Control Panel. The app configures the **per-game** driver profile; it does not enable global G-SYNC.
@@ -66,7 +67,7 @@ To use G-SYNC, enable it separately in NVIDIA Control Panel. The app configures 
 
 1. Download the latest installer from **[GitHub Releases](https://github.com/Vladislav2505/GameProfileManager/releases)**.
 2. Install RTSS and make sure your NVIDIA driver is up to date. Start RTSS.
-3. Run the installer, then launch **Game Profile Manager** and approve the Windows administrator prompt.
+3. Run the installer, then launch **GPM** and approve the Windows administrator prompt.
 4. If RTSS is not detected, open **Settings** and select its installation directory.
 
 The installer is self-contained; installing the .NET runtime or Windows App SDK separately is not necessary. It creates a Start menu shortcut and can optionally create a desktop shortcut.
@@ -99,7 +100,7 @@ A profile can use a **manual FPS limit (1–1000)** or a **fraction of the displ
 
 If the selected profile's FPS cannot be calculated because the display is unavailable, uses dynamic refresh, or cannot produce an integer limit, **Apply leaves RTSS/NVIDIA settings and the captured backup unchanged**. Use **Restore original settings** explicitly to return to the saved values.
 
-Other settings include the NVIDIA per-game refresh technology (G-SYNC allowed or fixed refresh), V-Sync, and an RTSS limiter mode. Game Profile Manager uses RTSS as its FPS limiter and sets the managed NVIDIA frame-rate limiter to disabled (`FRL_FPS = 0`) while applying a profile.
+Other settings include the NVIDIA per-game refresh technology (G-SYNC allowed or fixed refresh), V-Sync, and an RTSS limiter mode. GPM uses RTSS as its FPS limiter and sets the managed NVIDIA frame-rate limiter to disabled (`FRL_FPS = 0`) while applying a profile.
 
 ### Assignment modes
 
@@ -120,7 +121,7 @@ The application checks the Windows display configuration periodically, including
 
 ## Safety, backups, and diagnostics
 
-Before first modifying settings for a game's executable, Game Profile Manager saves the values that were already present in RTSS and NVIDIA DRS. If only part of an operation succeeds, it attempts to roll the changes back. Writes are followed by readback verification.
+Before first modifying settings for a game's executable, GPM saves the values that were already present in RTSS and NVIDIA DRS. If only part of an operation succeeds, it attempts to roll the changes back. Writes are followed by readback verification.
 
 - **Check now / Diagnostics** reads external settings without fixing them.
 - **Restore original settings** restores the captured values; after a successful restore, the app can also clear the game's assignments.
@@ -130,7 +131,7 @@ Before first modifying settings for a game's executable, Game Profile Manager sa
 **What verification means:** A successful readback proves that RTSS and NVIDIA DRS report the expected values. It does **not** measure actual in-game FPS or prove that VRR is active during gameplay.
 
 > [!IMPORTANT]
-> Game Profile Manager modifies game-specific external settings. Close running games before changing driver settings when possible, and keep a backup of your configuration. Restoring the originals may require RTSS to be running.
+> GPM modifies game-specific external settings. Close running games before changing driver settings when possible, and keep a backup of your configuration. Restoring the originals may require RTSS to be running.
 
 ## Controller and system tray
 
