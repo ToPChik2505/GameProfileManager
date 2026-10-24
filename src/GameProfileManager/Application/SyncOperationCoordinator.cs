@@ -4,7 +4,7 @@ namespace GameProfileManager.Application;
 
 /// <summary>
 /// Сериализует обращения к RTSS/NVIDIA и сохраняет результат на отделённом
-/// состоянии. Публикация в WPF выполняется вызывающим кодом после await.
+/// состоянии. Публикация в моделях WinUI выполняется вызывающим кодом после await.
 /// </summary>
 public sealed class SyncOperationCoordinator(SyncService service)
 {

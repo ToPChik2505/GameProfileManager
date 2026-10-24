@@ -19,12 +19,12 @@ The current manifest/UI startup path still elevates the whole WinUI process. `Ap
 | UI-03 | Picker applied whichever `LoadAsync` finished last. | Added cancellation and a monotonically increasing generation; closing cancels pending load. | Release build. | In progress; slow-I/O UI check remains. |
 | START-01 | Startup maximizes the window unconditionally. | Persist and restore normal bounds after Snap/DPI design. | Not run. | Open. |
 | INPUT-03 | SDL and display timers are still present. | Measure CPU, handles, and latency in foreground and tray before changing polling. | No baseline yet. | Open; requires repeatable Windows measurements. |
-| UI-01 | `RoutePage` rebuilds content at each transition. | Measure navigation latency and allocations before changing lifecycle. | No baseline yet. | Open. |
+| UI-01 | `RoutePage` rebuilds content at each transition. | Added bounded page-build/navigation metrics to isolated UI smoke, restored scroll/selection/focus for regular routes, and released page content/handlers on navigation. Draft editors are not cached. | Release build; performance baseline and interactive focus/back-navigation acceptance remain for the user to run. | In progress; do not cache or split pages without measurement evidence. |
 | UI-02 | Game row had fixed secondary columns. | Added compact game-row template and hide wide headers below 760 epx. | UI smoke at 640/420 epx passed; controller/keyboard and full Snap/DPI matrix remain manual. | Implemented in code; manual acceptance open. |
 | I/O-01 | `SaveOnly` still writes SQLite synchronously. | Profile latency and design ordered snapshot writer with durable flush. | No baseline yet. | Open. |
 | MEM-01 | Steam appinfo is read fully and searched linearly. | Measure representative import, then index if beneficial. | No baseline yet. | Open. |
 | IO-02 | Icon files are cached under TEMP without disk cleanup. | Measure usage, then add bounded app-local cache. | No baseline yet. | Open. |
-| MAINT-01 | WPF comments and large MainWindow remain. | Split responsibilities after navigation behavior is verified. | Not run. | Open. |
+| MAINT-01 | WPF comments and large MainWindow remained. | Corrected obsolete UI-thread comments; split update check and smoke into partial files; extracted the HTTP release lookup and bounded navigation diagnostics. Window placement and controller focus remain in MainWindow. | Release build; user functional check remains. | In progress. |
 | PKG-01 | Publish is self-contained without trimming. | Measure publish size/startup; preserve compatibility unless evidence supports a change. | No baseline yet. | Open. |
 
 ## Checks run so far
@@ -37,6 +37,7 @@ The current manifest/UI startup path still elevates the whole WinUI process. `Ap
 - `dotnet run --project .\tests\GameProfileManager.Tests\GameProfileManager.Tests.csproj -c Release --no-build` → passed the fake DLL rejection, unavailable FPS, explicit restore, rollback, SQLite, and other existing checks.
 - `dotnet run --project .\tests\GameProfileManager.UITests\GameProfileManager.UITests.csproj -c Release --no-build -- <fresh artifacts/ui-smoke directory> <artifacts/audit-build/GameProfileManager.exe>` → passed 15 routes in both themes, simulated controller menu, temporary SQLite, and zero external write attempts. Evidence: `artifacts/ui-smoke-0e75c1a7ec80459c9aeebd6a7438bed4/smoke-result.json`.
 - UX-01 Release build completed with zero warnings/errors. UI smoke passed at 1440, 1280, 1024, 800, 640, and 420 epx; games/game/editor were also captured at 960, 640, and 420 epx. It made zero external writes. Evidence: `artifacts/ui-smoke-3472022ea9db41029b71983997146cba/smoke-result.json`. The 420 epx screenshots of overview, games, game, and editor were inspected; bottom actions and native Snap/DPI still need a manual check.
+- UI-01/MAINT-01 Release build completed with zero warnings/errors after the navigation telemetry, page state, lifecycle, comment, and file split changes. No new UI smoke or interactive measurements were run at the user's request; `navigationSamples` and return-focus behavior await user verification.
 - Initial ordinary restore failed with `NU1301` because `api.nuget.org` was unavailable. Restoring from the local package cache succeeded.
 
 No real RTSS/NVIDIA write test, installer build, DPI/Snap matrix, physical controller test, or hardware measurement has been performed. The user database was not opened or modified by these checks. The logo specification is a separate task and is outside this branch.

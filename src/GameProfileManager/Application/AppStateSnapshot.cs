@@ -4,7 +4,7 @@ namespace GameProfileManager.Application;
 
 /// <summary>
 /// Создаёт отделённое состояние для фоновой синхронизации. Наблюдаемые модели
-/// исходного состояния принадлежат потоку WPF и не передаются внешним клиентам.
+/// исходного состояния принадлежат UI-потоку и не передаются внешним клиентам.
 /// </summary>
 public static class AppStateSnapshot
 {
@@ -50,7 +50,7 @@ public static class AppStateSnapshot
     }
 
     /// <summary>
-    /// Вызывается только в потоке WPF после завершения операции. Не заменяет
+    /// Вызывается только в UI-потоке после завершения операции. Не заменяет
     /// коллекции игр и профилей, чтобы сохранить их привязки и выбранные элементы.
     /// </summary>
     public static void PublishResults(AppState completed, AppState target)

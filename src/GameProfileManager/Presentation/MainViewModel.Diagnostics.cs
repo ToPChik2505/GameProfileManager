@@ -32,7 +32,7 @@ public sealed partial class MainViewModel
             .ToArray();
 
         // Сохраняем существующие элементы, если данные не изменились: это
-        // предотвращает повторное создание карточек WPF при каждом сохранении.
+        // предотвращает повторное создание карточек WinUI при каждом сохранении.
         if (AttentionItems.SequenceEqual(next)) return;
         int common = Math.Min(AttentionItems.Count, next.Length);
         for (int index = 0; index < common; index++)

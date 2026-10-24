@@ -87,12 +87,19 @@ internal static partial class PageFactory
             ItemsSource = vm.GamesView,
             ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Application.Current.Resources["GameRowTemplate"],
             SelectionMode = ListViewSelectionMode.Single,
+            IsItemClickEnabled = true,
             ItemContainerStyle = (Style)Microsoft.UI.Xaml.Application.Current.Resources["GameListItemStyle"],
-            MinHeight = 180
+            MinHeight = 180,
+            SelectedItem = vm.SelectedGameCard
         };
         list.SelectionChanged += (_, _) =>
         {
             if (list.SelectedItem is not GameProfileManager.Presentation.GameEntryViewModel card) return;
+            vm.SelectedGameCard = card;
+        };
+        list.ItemClick += (_, args) =>
+        {
+            if (args.ClickedItem is not GameProfileManager.Presentation.GameEntryViewModel card) return;
             vm.SelectedGameCard = card;
             request.Owner.Navigate("game", card.Id);
         };

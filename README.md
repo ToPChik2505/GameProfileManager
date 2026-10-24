@@ -148,6 +148,8 @@ Use **Settings** to enable minimizing to the system tray and configure Windows s
 
 The interface follows Windows display scaling (Per-Monitor V2 DPI) and the system theme; Light and Dark overrides are available. The current build has a minimum window size of **420 × 560 effective pixels**. At compact widths, cards, game rows, profile details, and action buttons stack vertically; long pages scroll. The WinUI title bar retains native caption controls.
 
+When returning to a regular page, the app restores its scroll position, selection, and page focus where the control still exists. The profile editor always starts from its current saved model; unsaved drafts are protected by the leave confirmation and are never cached. The optional isolated UI smoke writes page build time, UI-thread allocations, GC collection counts, and navigation-to-load time to `navigationSamples` in `smoke-result.json`.
+
 ## Updates and data
 
 - **Updates:** Open **Settings → Backups and updates → Check for updates**. This performs an on-demand check of the latest GitHub Release. Download and install updates manually; the app does not automatically install them.
