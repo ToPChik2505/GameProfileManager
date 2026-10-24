@@ -25,7 +25,7 @@
 - Save graphics configuration snapshots from files and selected registry values, assign them to displays, and optionally switch snapshots using the effective-display rules.
 - Keep safety copies and recover interrupted multi-file operations. GPM does not close games and will not capture or apply configuration while a game is running or a file conflict is unresolved.
 - Manage games imported from Steam or Epic, or added by executable; use the WinUI 3 interface with gamepad support.
-- Use PCGamingWiki search without credentials, or configure an optional bot password for structured GameData results. The password is stored in Windows Credential Manager.
+- Online configuration search uses the [PCGamingWiki MediaWiki API](https://www.pcgamingwiki.com/wiki/PCGamingWiki:API): anonymous article parsing or optional bot-authenticated structured GameData. Bot credentials are stored in Windows Credential Manager.
 
 ## Requirements
 
