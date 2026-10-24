@@ -139,6 +139,7 @@ SDL3 handles controller input, with Xbox-style labels or PlayStation button labe
 | D-pad / left stick | Move focus |
 | A / ✕ | Select or activate |
 | B / ○ | Go back or close a drop-down |
+| Start / Options | Open or close the navigation pane; dialogs, file picker, and on-screen keyboard take priority |
 | LB / RB · L1 / R1 | Switch top-level sections |
 | Triggers / right stick | Scroll |
 | On-screen keyboard | Enter text without a physical keyboard |

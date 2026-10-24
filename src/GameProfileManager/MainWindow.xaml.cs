@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     private bool _closeGuardPending;
     private bool _navigationPending;
     private bool _syncingSelection;
+    private bool _dialogActive;
     private bool _controllerMode;
     private bool _controllerConnected;
     private bool _playStationController;
@@ -83,8 +84,8 @@ public sealed partial class MainWindow : Window
         _controllerConnected = connected;
         _playStationController = connected && playStation;
         ControllerLegend.Text = _playStationController
-            ? "✕ — выбрать     ○ — назад / закрыть список     L1/R1 — разделы     Крестовина — перемещение"
-            : "A — выбрать     B — назад / закрыть список     LB/RB — разделы     D-pad — перемещение";
+            ? "✕ — выбрать     ○ — назад / закрыть список     Options — меню     L1/R1 — разделы     Крестовина — перемещение"
+            : "A — выбрать     B — назад / закрыть список     Start — меню     LB/RB — разделы     D-pad — перемещение";
         ControllerLegend.Visibility = connected && _controllerMode ? Visibility.Visible : Visibility.Collapsed;
         ControllerStatusChanged?.Invoke();
     }
@@ -276,6 +277,14 @@ public sealed partial class MainWindow : Window
         finally { _syncingSelection = false; }
     }
 
+    internal async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
+    {
+        if (_dialogActive) return ContentDialogResult.None;
+        _dialogActive = true;
+        try { return await dialog.ShowAsync(); }
+        finally { _dialogActive = false; }
+    }
+
     private bool TryCloseOpenComboBox()
     {
         var combo = Descendants(ContentFrame).OfType<ComboBox>()
@@ -350,8 +359,11 @@ public sealed partial class MainWindow : Window
         ControllerLegend.Visibility = _controllerConnected ? Visibility.Visible : Visibility.Collapsed;
         if (ActiveKeyboard is { } keyboard) { keyboard.HandleController(action); return; }
         if (_activePicker is { } picker) { picker.HandleController(action); return; }
+        if (_dialogActive) return;
+        if (action == ControllerAction.Menu && TryCloseOpenComboBox()) return;
         switch (action)
         {
+            case ControllerAction.Menu: NavView.IsPaneOpen = !NavView.IsPaneOpen; break;
             case ControllerAction.Up: MoveControllerFocus(FocusNavigationDirection.Up); break;
             case ControllerAction.Down: MoveControllerFocus(FocusNavigationDirection.Down); break;
             case ControllerAction.Left: MoveControllerFocus(FocusNavigationDirection.Left); break;
@@ -570,12 +582,17 @@ public sealed partial class MainWindow : Window
         UpdateControllerStatus("DualSense", true, true);
         bool dualSenseLayoutWorks = IsPlayStationController && ControllerLegend.Text.Contains("✕ — выбрать")
             && ControllerLegend.Text.Contains("○ — назад");
+        bool paneWasOpen = NavView.IsPaneOpen;
+        DispatchControllerAction(ControllerAction.Menu);
+        bool controllerMenuWorks = NavView.IsPaneOpen != paneWasOpen;
+        DispatchControllerAction(ControllerAction.Menu);
+        controllerMenuWorks &= NavView.IsPaneOpen == paneWasOpen;
         var settingsCombo = Descendants(ContentFrame).OfType<ComboBox>().First();
         settingsCombo.Focus(FocusState.Programmatic);
         settingsCombo.IsDropDownOpen = true;
         DispatchControllerAction(ControllerAction.Back);
         bool controllerDropdownCloses = !settingsCombo.IsDropDownOpen && CurrentRoute == "settings";
-        if (!dualSenseLayoutWorks || !controllerDropdownCloses)
+        if (!dualSenseLayoutWorks || !controllerDropdownCloses || !controllerMenuWorks)
             throw new InvalidOperationException("DualSense labels or controller dropdown return failed.");
         UpdateControllerStatus("", false, false);
         bool rootBackDisabled = NavView.IsBackButtonVisible == NavigationViewBackButtonVisible.Visible
@@ -701,7 +718,7 @@ public sealed partial class MainWindow : Window
         File.WriteAllText(Path.Combine(outputDirectory, "smoke-result.json"),
             JsonSerializer.Serialize(new { routes = observed, graphicsUnavailable, iconLoaded,
                 shellChromeReady, gameColumnsLabeled, loaderShownAndHidden, importReturnWorks, controllerReturnWorks,
-                controllerFocusAndAcceptWorks, dualSenseLayoutWorks, controllerDropdownCloses,
+                controllerFocusAndAcceptWorks, dualSenseLayoutWorks, controllerDropdownCloses, controllerMenuWorks,
                 monitorAppearsImmediately, exeSelectionWorks, restoreClearsProfile,
                 externalWriteAttempts = SmokeAudit.WriteAttempts, screenshots = Directory.GetFiles(screenshotDirectory).Length,
                 actualSizes, widePairs, draftIsolated, editorSaved, discardPreserved,

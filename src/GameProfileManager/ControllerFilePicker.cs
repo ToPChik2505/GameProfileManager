@@ -68,7 +68,7 @@ internal sealed class ControllerFilePicker
     public async Task<string?> ShowAsync()
     {
         await LoadAsync(_directory);
-        await _dialog.ShowAsync();
+        await _owner.ShowDialogAsync(_dialog);
         return _result;
     }
 

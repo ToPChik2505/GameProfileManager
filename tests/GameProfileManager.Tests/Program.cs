@@ -46,6 +46,12 @@ try
            windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 2000).Count == 0 &&
            windowControls.Update(Press(ControllerButton.Start, ControllerButton.Back), 2700).SequenceEqual([ControllerAction.ToggleWindow]),
         "minimize shortcut and held restore chord fire once until released");
+    var menuControls = new ControllerActionMapper();
+    Assert(menuControls.Update(Press(ControllerButton.Start), 100).SequenceEqual([ControllerAction.Menu]) &&
+           menuControls.Update(Press(ControllerButton.Start), 200).Count == 0 &&
+           menuControls.Update(default, 300).Count == 0 &&
+           menuControls.Update(Press(ControllerButton.Start), 400).SequenceEqual([ControllerAction.Menu]),
+        "Start/Options sends one menu action per press");
     Console.WriteLine("PASS Xbox/DualSense action mapping and navigation repeat");
     string instanceIdentity = "GameProfileManager.Tests." + Guid.NewGuid().ToString("N");
     using var firstInstance = new SingleInstanceCoordinator(instanceIdentity);

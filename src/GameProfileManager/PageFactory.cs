@@ -300,7 +300,7 @@ internal static partial class PageFactory
             XamlRoot = owner.Content.XamlRoot, Title = title, Content = message,
             PrimaryButtonText = action, CloseButtonText = "Отмена", DefaultButton = ContentDialogButton.Close
         };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+        return await owner.ShowDialogAsync(dialog) == ContentDialogResult.Primary;
     }
 
     internal static Task<bool> ConfirmUpdate(MainWindow owner, string version) => Confirm(owner,

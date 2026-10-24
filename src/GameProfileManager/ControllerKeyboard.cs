@@ -35,7 +35,7 @@ internal sealed class ControllerKeyboard
     {
         var keyboard = new ControllerKeyboard(owner, title, value);
         owner.ActiveKeyboard = keyboard;
-        try { await keyboard._dialog.ShowAsync(); return keyboard._result; }
+        try { await owner.ShowDialogAsync(keyboard._dialog); return keyboard._result; }
         finally { owner.ActiveKeyboard = null; }
     }
 

@@ -57,6 +57,7 @@ if (root.GetProperty("routes").GetArrayLength() != 15 ||
     !root.GetProperty("controllerFocusAndAcceptWorks").GetBoolean() ||
     !root.GetProperty("dualSenseLayoutWorks").GetBoolean() ||
     !root.GetProperty("controllerDropdownCloses").GetBoolean() ||
+    !root.GetProperty("controllerMenuWorks").GetBoolean() ||
     !root.GetProperty("monitorAppearsImmediately").GetBoolean() ||
     !root.GetProperty("exeSelectionWorks").GetBoolean() ||
     !root.GetProperty("restoreClearsProfile").GetBoolean() ||

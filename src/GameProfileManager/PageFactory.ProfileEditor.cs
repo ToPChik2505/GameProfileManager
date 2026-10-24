@@ -98,7 +98,7 @@ internal static partial class PageFactory
                 CloseButtonText = "Остаться",
                 DefaultButton = ContentDialogButton.Close
             };
-            return await dialog.ShowAsync() switch
+            return await request.Owner.ShowDialogAsync(dialog) switch
             {
                 ContentDialogResult.Primary => Save(),
                 ContentDialogResult.Secondary => true,
