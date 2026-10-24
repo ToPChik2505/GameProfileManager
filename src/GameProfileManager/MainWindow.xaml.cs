@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly ShellTrayIcon _trayIcon;
     private readonly SdlControllerInput _controllerInput;
+    private readonly InfoBarDismissTimer _statusDismissTimer;
+    private readonly InfoBarDismissTimer _rtssDismissTimer;
     private bool _exitRequested;
     private bool _leaveApproved;
     private bool _closeGuardPending;
@@ -46,6 +48,8 @@ public sealed partial class MainWindow : Window
     public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
+        _statusDismissTimer = new InfoBarDismissTimer(StatusBar, TimeSpan.FromSeconds(7));
+        _rtssDismissTimer = new InfoBarDismissTimer(RtssBar, TimeSpan.FromSeconds(15));
         _viewModel = viewModel;
         ThemeManager.Apply(viewModel.Theme);
         ExtendsContentIntoTitleBar = true;
@@ -164,12 +168,14 @@ public sealed partial class MainWindow : Window
             StatusBar.Message = _viewModel.Notice;
             StatusBar.Severity = _viewModel.Notice.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase)
                 ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
-            StatusBar.IsOpen = true;
+            _statusDismissTimer.Show(StatusBar.Severity == InfoBarSeverity.Error
+                ? TimeSpan.FromSeconds(12) : TimeSpan.FromSeconds(7));
         }
         if (args.PropertyName == nameof(MainViewModel.Theme)) ThemeManager.Apply(_viewModel.Theme);
         if (args.PropertyName is nameof(MainViewModel.RtssWarningVisible) or nameof(MainViewModel.RtssWarning))
             UpdateRtssBar();
         if (args.PropertyName is nameof(MainViewModel.IsActivityVisible) or nameof(MainViewModel.SyncProgressMessage)
+            or nameof(MainViewModel.SyncProgressPercent) or nameof(MainViewModel.SyncProgressTotal)
             or nameof(MainViewModel.IsApplyingAll))
             UpdateActivityBanner();
     }
@@ -179,7 +185,8 @@ public sealed partial class MainWindow : Window
         RtssBar.Title = _viewModel.RtssStatus?.StartsWith("RTSS недоступен", StringComparison.Ordinal) == true
             ? "RTSS недоступен" : "RTSS закрыт";
         RtssBar.Message = _viewModel.RtssWarning;
-        RtssBar.IsOpen = _viewModel.RtssWarningVisible;
+        if (_viewModel.RtssWarningVisible) _rtssDismissTimer.Show();
+        else _rtssDismissTimer.Hide();
         StartRtssButton.Visibility = RtssClient.ProcessIsRunning ? Visibility.Collapsed : Visibility.Visible;
         StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
     }
@@ -188,8 +195,9 @@ public sealed partial class MainWindow : Window
     {
         bool visible = _viewModel.IsActivityVisible;
         ActivityBanner.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        ActivityRing.IsActive = visible;
         ActivityText.Text = _viewModel.SyncProgressMessage;
+        ActivityProgressBar.IsIndeterminate = _viewModel.SyncProgressTotal == 0;
+        ActivityProgressBar.Value = _viewModel.SyncProgressPercent;
         StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
     }
 

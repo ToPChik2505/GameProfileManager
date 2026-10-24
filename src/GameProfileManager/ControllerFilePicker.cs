@@ -17,6 +17,7 @@ internal sealed class ControllerFilePicker
     private readonly ListView _list = new() { MinHeight = 240, MaxHeight = 430, SelectionMode = ListViewSelectionMode.Single };
     private readonly TextBlock _location = new() { TextWrapping = TextWrapping.Wrap };
     private readonly InfoBar _error = new() { IsOpen = false, Severity = InfoBarSeverity.Warning, IsClosable = false };
+    private readonly InfoBarDismissTimer _errorDismissTimer;
     private readonly Button _upButton;
     private CancellationTokenSource? _loadCancellation;
     private int _loadGeneration;
@@ -27,6 +28,7 @@ internal sealed class ControllerFilePicker
     public ControllerFilePicker(MainWindow owner, string title, string pattern, string? initialDirectory)
     {
         _owner = owner;
+        _errorDismissTimer = new InfoBarDismissTimer(_error, TimeSpan.FromSeconds(8));
         _pattern = pattern;
         _directory = Directory.Exists(initialDirectory) ? initialDirectory : null;
         _dialog = new ContentDialog
@@ -110,7 +112,7 @@ internal sealed class ControllerFilePicker
             _upButton.IsEnabled = directory is not null;
             _list.ItemsSource = entries;
             _list.SelectedIndex = entries.Length > 0 ? 0 : -1;
-            _error.IsOpen = false;
+            _errorDismissTimer.Hide();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -154,7 +156,7 @@ internal sealed class ControllerFilePicker
         ? Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase)
         : Path.GetFileName(path).Equals("RTSSHooks64.dll", StringComparison.OrdinalIgnoreCase);
 
-    private void ShowError(string message) { _error.Message = message; _error.IsOpen = true; }
+    private void ShowError(string message) { _error.Message = message; _errorDismissTimer.Show(); }
 
     private static Button Button(string text, Action action)
     {

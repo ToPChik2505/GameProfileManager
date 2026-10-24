@@ -28,6 +28,7 @@
 
 The approved dark application icon is used in Light, Dark, and System themes.
 The title bar shows GPM with its full name; the menu button there opens or closes the sidebar.
+Transient notices close automatically. During an operation, the moving progress bar indicates work with an unknown length; applying profiles to a known number of games shows completed and remaining counts.
 
 **Jump to:** [Features](#features) · [Install](#install) · [Quick start](#quick-start) · [Profiles & monitors](#profiles-and-monitors) · [Troubleshooting](#troubleshooting) · [Build](#build-from-source)
 

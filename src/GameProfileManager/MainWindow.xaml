@@ -54,10 +54,11 @@
                   Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                   BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                   CornerRadius="8">
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <ProgressRing x:Name="ActivityRing" Width="24" Height="24" IsActive="False" />
+            <StackPanel Spacing="8">
               <TextBlock x:Name="ActivityText" VerticalAlignment="Center" TextWrapping="Wrap"
                          Style="{ThemeResource BodyTextBlockStyle}" />
+              <ProgressBar x:Name="ActivityProgressBar" Minimum="0" Maximum="100"
+                           Height="4" IsIndeterminate="True" />
             </StackPanel>
           </Border>
         </StackPanel>

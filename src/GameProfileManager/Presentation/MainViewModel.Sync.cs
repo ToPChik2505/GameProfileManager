@@ -36,15 +36,17 @@ public sealed partial class MainViewModel
 
             var games = Games.ToArray();
             if (games.Length == 0) { Notice = "В библиотеке пока нет игр."; return; }
+            SyncProgressTotal = games.Length;
             for (int index = 0; index < games.Length; index++)
             {
                 var game = games[index];
-                SyncProgressMessage = $"Игра {index + 1} из {games.Length}: {game.Name}";
+                SyncProgressMessage = $"Обработано {index} из {games.Length}, осталось {games.Length - index}: {game.Name}";
                 var error = await _syncCoordinator.ExecuteAsync(snapshot, (service, state) =>
                     service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)));
                 AppStateSnapshot.PublishResults(snapshot, _state);
                 if (error is not null) throw error;
                 SyncProgressPercent = 100d * (index + 1) / games.Length;
+                SyncProgressMessage = $"Обработано {index + 1} из {games.Length}, осталось {games.Length - index - 1}.";
                 UpdateSummary();
             }
             int issues = games.Count(game => game.Status is ApplyStatus.Error or ApplyStatus.Unsupported);

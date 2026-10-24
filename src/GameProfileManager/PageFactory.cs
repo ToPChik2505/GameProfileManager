@@ -270,7 +270,11 @@ internal static partial class PageFactory
     }
 
     private static UIElement Message(string title, string detail, InfoBarSeverity severity = InfoBarSeverity.Informational)
-        => new InfoBar { Title = title, Message = detail, Severity = severity, IsOpen = true, IsClosable = false };
+    {
+        var bar = new InfoBar { Title = title, Message = detail, Severity = severity, IsOpen = true, IsClosable = false };
+        _ = new InfoBarDismissTimer(bar, TimeSpan.FromSeconds(12));
+        return bar;
+    }
 
     private static GameEntry? Game(RouteRequest request)
     {

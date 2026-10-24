@@ -46,6 +46,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private bool _isActivityVisible;
     private string _syncProgressMessage = "";
     private double _syncProgressPercent;
+    private int _syncProgressTotal;
     private readonly DispatcherTimer _rtssTimer = new();
     private readonly DispatcherTimer _activityDelayTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
@@ -248,6 +249,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public bool IsActivityVisible { get => _isActivityVisible; private set => Set(ref _isActivityVisible, value); }
     public string SyncProgressMessage { get => _syncProgressMessage; private set => Set(ref _syncProgressMessage, value); }
     public double SyncProgressPercent { get => _syncProgressPercent; private set => Set(ref _syncProgressPercent, value); }
+    public int SyncProgressTotal { get => _syncProgressTotal; private set => Set(ref _syncProgressTotal, value); }
     public string SelectedProfileHelp => SelectedProfile is { IsBuiltIn: true }
         ? "Начальный профиль можно изменить, но нельзя удалить. Его параметры применятся ко всем назначенным играм после отдельного применения."
         : "Параметры применятся ко всем играм, которым назначен этот профиль.";
@@ -625,6 +627,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         _busy = true;
         SyncProgressMessage = message;
         SyncProgressPercent = 0;
+        SyncProgressTotal = 0;
         IsApplyingAll = true;
         return true;
     }

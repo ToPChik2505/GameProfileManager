@@ -91,15 +91,17 @@ public sealed partial class MainViewModel
         {
             SaveOnly(false, duringSync: true);
             var snapshot = AppStateSnapshot.Capture(_state);
+            SyncProgressTotal = changed.Length;
             for (int index = 0; index < changed.Length; index++)
             {
                 var game = changed[index];
-                SyncProgressMessage = $"Обновление лимита после смены экрана: {game.Name}";
+                SyncProgressMessage = $"Обработано {index} из {changed.Length}, осталось {changed.Length - index}: {game.Name}";
                 var error = await _syncCoordinator.ExecuteAsync(snapshot, (service, state) =>
                     service.ApplyOne(state, state.Games.Single(item => item.Id == game.Id)));
                 AppStateSnapshot.PublishResults(snapshot, _state);
                 if (error is not null) throw error;
                 SyncProgressPercent = 100d * (index + 1) / changed.Length;
+                SyncProgressMessage = $"Обработано {index + 1} из {changed.Length}, осталось {changed.Length - index - 1}.";
             }
             Notice = changed.All(game => game.Status is ApplyStatus.Applied or ApplyStatus.RestartRequired)
                 ? "Дисплей изменился; обновлённые профили применены."

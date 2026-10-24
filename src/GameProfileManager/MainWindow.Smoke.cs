@@ -208,11 +208,11 @@ public sealed partial class MainWindow
         {
             await Task.Delay(700);
             loaderVisible = _viewModel.IsActivityVisible && ActivityBanner.Visibility == Visibility.Visible
-                && ActivityRing.IsActive && ActivityText.Text == "Проверка индикатора…";
+                && ActivityProgressBar.IsIndeterminate && ActivityText.Text == "Проверка индикатора…";
             await CaptureAsync(Path.Combine(screenshotDirectory, "Light-activity-loader.png"));
         });
         bool loaderShownAndHidden = loaderVisible && !_viewModel.IsActivityVisible
-            && ActivityBanner.Visibility == Visibility.Collapsed && !ActivityRing.IsActive;
+            && ActivityBanner.Visibility == Visibility.Collapsed;
         if (!loaderShownAndHidden) throw new InvalidOperationException("Shared activity loader did not open and close.");
         if (!draftIsolated || !editorSaved || !discardPreserved)
             throw new InvalidOperationException("Profile editor draft/persistence assertion failed.");
