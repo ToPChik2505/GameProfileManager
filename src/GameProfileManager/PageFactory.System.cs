@@ -115,7 +115,7 @@ internal static partial class PageFactory
             Toggle("Проверять и повторно применять при запуске", vm.CheckAtStartup, value => vm.CheckAtStartup = value),
             Field("Оформление", Choice(vm.ThemeOptions, vm.Theme, value => vm.Theme = value)),
             Strong("Окно и запуск"),
-            Toggle("Сворачивать в трей при закрытии", vm.MinimizeToTray, value => vm.MinimizeToTray = value),
+            Toggle("Сворачивать в трей при закрытии и с геймпада", vm.MinimizeToTray, value => vm.MinimizeToTray = value),
             Toggle("Автозапуск вместе с Windows", vm.AutoStart, value => vm.AutoStart = value),
             Toggle("Запуск с повышением без повторного UAC", vm.SilentAdminLaunch, value => vm.SilentAdminLaunch = value, () => vm.SilentAdminLaunch),
             Strong("Интеграция RTSS"), Secondary(vm.RtssStatus),
@@ -193,8 +193,8 @@ internal static partial class PageFactory
         {
             status.Text = request.Owner.ControllerStatus;
             buttons.Text = request.Owner.IsPlayStationController
-                ? "✕ — выбрать; ○ — назад или закрыть список; □ — ввод / удалить; △ — свернуть"
-                : "A — выбрать; B — назад или закрыть список; X — ввод / удалить; Y — свернуть";
+                ? "✕ — выбрать; ○ — назад или закрыть список; □ — ввод / удалить; △ — в трей или свернуть"
+                : "A — выбрать; B — назад или закрыть список; X — ввод / удалить; Y — в трей или свернуть";
             sections.Text = request.Owner.IsPlayStationController
                 ? "L1 / R1 — основные разделы; правый стик и L2 / R2 — прокрутка"
                 : "LB / RB — основные разделы; правый стик и LT / RT — прокрутка";

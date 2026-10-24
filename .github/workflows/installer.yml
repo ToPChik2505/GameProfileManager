@@ -105,6 +105,11 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:GITHUB_REF_NAME $asset --clobber
           } else {
-            gh release create $env:GITHUB_REF_NAME $asset --title "Game Profile Manager $version" --generate-notes --verify-tag
+            $notes = ".\.github\release-notes\$($env:GITHUB_REF_NAME).md"
+            if (Test-Path -LiteralPath $notes -PathType Leaf) {
+              gh release create $env:GITHUB_REF_NAME $asset --title "Game Profile Manager $version" --notes-file $notes --verify-tag
+            } else {
+              gh release create $env:GITHUB_REF_NAME $asset --title "Game Profile Manager $version" --generate-notes --verify-tag
+            }
           }
           if ($LASTEXITCODE -ne 0) { throw "GitHub Release publication failed: $LASTEXITCODE" }

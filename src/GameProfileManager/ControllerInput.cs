@@ -104,19 +104,31 @@ internal sealed class SdlControllerInput : IDisposable
     private const int Ps3Type = 4, Ps4Type = 5, Ps5Type = 6, CrossLabel = 5;
     private const int ForegroundIntervalMs = 40;
     private const int BackgroundIntervalMs = 100;
+    private const int NoControllerIntervalMs = 1000;
     private static readonly ControllerButton[] PolledButtons = Enum.GetValues<ControllerButton>();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(ForegroundIntervalMs) };
     private readonly DispatcherQueue _dispatcher = DispatcherQueue.GetForCurrentThread();
+    private bool _backgroundMode;
 
     /// <summary>
-    /// В трее опрос выполняется реже ради экономии CPU, но не останавливается:
-    /// удержание Start+View / Options+Create должно по-прежнему возвращать окно.
+    /// При подключённом контроллере опрос в трее выполняется реже, чтобы удержание
+    /// Start+View / Options+Create по-прежнему возвращало окно. Без контроллера
+    /// проверка подключения выполняется раз в секунду.
     /// </summary>
     public void SetBackgroundMode(bool isBackground)
     {
-        var interval = TimeSpan.FromMilliseconds(isBackground ? BackgroundIntervalMs : ForegroundIntervalMs);
+        _backgroundMode = isBackground;
+        UpdatePollingInterval();
+    }
+
+    private void UpdatePollingInterval()
+    {
+        int milliseconds = _pads.Count == 0 ? NoControllerIntervalMs :
+            _backgroundMode ? BackgroundIntervalMs : ForegroundIntervalMs;
+        var interval = TimeSpan.FromMilliseconds(milliseconds);
         if (_timer.Interval != interval) _timer.Interval = interval;
     }
+
     private readonly Dictionary<uint, OpenPad> _pads = new();
     private bool _initialized;
     private long _nextEnumeration;
@@ -194,6 +206,7 @@ internal sealed class SdlControllerInput : IDisposable
         if (ids == IntPtr.Zero)
         {
             SetStatus("Контроллер недоступен: " + GetError(), false);
+            UpdatePollingInterval();
             return;
         }
         var connected = new HashSet<uint>();
@@ -220,6 +233,7 @@ internal sealed class SdlControllerInput : IDisposable
             _pads.Remove(id);
         }
         if (_pads.Count == 0) SetStatus("", false);
+        UpdatePollingInterval();
     }
 
     private static ControllerSnapshot Read(IntPtr pad)

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace GameProfileManager;
 
@@ -10,6 +11,7 @@ internal sealed class ControllerKeyboard
     private readonly Grid _keys = new() { ColumnSpacing = 4, RowSpacing = 4 };
     private readonly List<Button> _buttons = new();
     private bool _russian = true;
+    private bool _dialogOpened;
     private int _selection;
     private string? _result;
 
@@ -28,6 +30,14 @@ internal sealed class ControllerKeyboard
             : "D-pad — выбор · A — нажать · X — удалить · Y — RU/EN · Start — готово · B — отмена" });
         content.Children.Add(_keys);
         _dialog.Content = new ScrollViewer { Content = content, MaxHeight = 510 };
+        _dialog.Opened += (_, _) =>
+        {
+            _dialogOpened = true;
+            // ContentDialog assigns its initial focus as it finishes opening. Defer
+            // our focus request so that it wins over that final focus pass.
+            Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().TryEnqueue(
+                Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusSelectedKey);
+        };
         BuildKeys();
     }
 
@@ -57,15 +67,52 @@ internal sealed class ControllerKeyboard
         {
             string label = labels[index];
             var button = new Button { Content = label, MinHeight = 42, MinWidth = 32, Padding = new Thickness(4) };
-            button.Click += (_, _) => Press(label);
+            button.Click += (_, _) =>
+            {
+                int selected = _buttons.IndexOf(button);
+                if (selected >= 0)
+                {
+                    _selection = selected;
+                    UpdateSelectionVisuals();
+                }
+                Press(label);
+            };
             Grid.SetRow(button, index / 10);
             Grid.SetColumn(button, index % 10);
             _keys.Children.Add(button);
             _buttons.Add(button);
         }
         _selection = Math.Clamp(_selection, 0, _buttons.Count - 1);
-        _buttons[_selection].Focus(FocusState.Programmatic);
+        UpdateSelectionVisuals();
+        if (_dialogOpened) FocusSelectedKey();
     }
+
+    private void FocusSelectedKey()
+    {
+        if ((uint)_selection >= (uint)_buttons.Count) return;
+        var button = _buttons[_selection];
+        button.Focus(FocusState.Programmatic);
+        button.StartBringIntoView();
+    }
+
+    private void UpdateSelectionVisuals()
+    {
+        Brush? selectedBrush = GetThemeBrush("AccentFillColorDefaultBrush");
+        Brush? normalBrush = GetThemeBrush("ControlStrokeColorDefaultBrush");
+        Brush? selectedBackground = GetThemeBrush("ControlFillColorSecondaryBrush");
+        Brush? normalBackground = GetThemeBrush("ControlFillColorDefaultBrush");
+
+        for (int index = 0; index < _buttons.Count; index++)
+        {
+            bool selected = index == _selection;
+            _buttons[index].BorderBrush = selected ? selectedBrush : normalBrush;
+            _buttons[index].BorderThickness = new Thickness(selected ? 2 : 1);
+            _buttons[index].Background = selected ? selectedBackground : normalBackground;
+        }
+    }
+
+    private static Brush? GetThemeBrush(string key) =>
+        Microsoft.UI.Xaml.Application.Current.Resources.TryGetValue(key, out object value) ? value as Brush : null;
 
     private void Press(string key)
     {
@@ -99,6 +146,7 @@ internal sealed class ControllerKeyboard
             case ControllerAction.Back: _dialog.Hide(); return;
         }
         _selection = Math.Min(row * 10 + column, _buttons.Count - 1);
-        _buttons[_selection].Focus(FocusState.Programmatic);
+        UpdateSelectionVisuals();
+        FocusSelectedKey();
     }
 }

@@ -24,7 +24,6 @@ public sealed partial class MainWindow : Window
     private bool _closeGuardPending;
     private bool _navigationPending;
     private bool _syncingSelection;
-    private bool _dialogActive;
     private bool _controllerMode;
     private bool _controllerConnected;
     private bool _playStationController;
@@ -38,6 +37,7 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<(string Route, Guid? ItemId), RouteViewState> _pageStates = new();
     private NavigationProbe? _pendingNavigationProbe;
     private ControllerFilePicker? _activePicker;
+    private ContentDialog? _activeDialog;
     internal ControllerKeyboard? ActiveKeyboard { get; set; }
     private string _route = "overview";
     private string _controllerStatus = "Контроллер не подключён";
@@ -89,8 +89,8 @@ public sealed partial class MainWindow : Window
         _controllerConnected = connected;
         _playStationController = connected && playStation;
         ControllerLegend.Text = _playStationController
-            ? "✕ — выбрать     ○ — назад / закрыть список     Options — меню     L1/R1 — разделы     Крестовина — перемещение"
-            : "A — выбрать     B — назад / закрыть список     Start — меню     LB/RB — разделы     D-pad — перемещение";
+            ? "✕ — выбрать     ○ — назад / закрыть список     Options — меню     △ — свернуть     L1/R1 — разделы     Крестовина — перемещение"
+            : "A — выбрать     B — назад / закрыть список     Start — меню     Y — свернуть     LB/RB — разделы     D-pad — перемещение";
         ControllerLegend.Visibility = connected && _controllerMode ? Visibility.Visible : Visibility.Collapsed;
         ControllerStatusChanged?.Invoke();
     }
@@ -118,6 +118,14 @@ public sealed partial class MainWindow : Window
         _controllerInput.SetBackgroundMode(false);
     }
 
+    private bool TryHideToTray()
+    {
+        if (!_viewModel.MinimizeToTray || !_trayIcon.IsAvailable) return false;
+        AppWindow.Hide();
+        _controllerInput.SetBackgroundMode(true);
+        return true;
+    }
+
     private void ExitFromTray()
     {
         _exitRequested = true;
@@ -130,8 +138,7 @@ public sealed partial class MainWindow : Window
         if (!_exitRequested && _viewModel.MinimizeToTray && _trayIcon.IsAvailable)
         {
             args.Cancel = true;
-            AppWindow.Hide();
-            _controllerInput.SetBackgroundMode(true);
+            TryHideToTray();
             return;
         }
         if (!_leaveApproved && ContentFrame.Content is RoutePage page)
@@ -319,10 +326,13 @@ public sealed partial class MainWindow : Window
 
     internal async Task<ContentDialogResult> ShowDialogAsync(ContentDialog dialog)
     {
-        if (_dialogActive) return ContentDialogResult.None;
-        _dialogActive = true;
+        if (_activeDialog is not null) return ContentDialogResult.None;
+        _activeDialog = dialog;
         try { return await dialog.ShowAsync(); }
-        finally { _dialogActive = false; }
+        finally
+        {
+            if (ReferenceEquals(_activeDialog, dialog)) _activeDialog = null;
+        }
     }
 
     private bool TryCloseOpenComboBox()
@@ -389,7 +399,11 @@ public sealed partial class MainWindow : Window
             else if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
             return;
         }
-        if (GetForegroundWindow() != WinRT.Interop.WindowNative.GetWindowHandle(this)) return;
+        IntPtr window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        IntPtr foreground = GetForegroundWindow();
+        if (foreground != window && (_activeDialog is null ||
+            GetWindowThreadProcessId(foreground, out uint foregroundProcessId) == 0 ||
+            foregroundProcessId != (uint)Environment.ProcessId)) return;
         DispatchControllerAction(action);
     }
 
@@ -399,7 +413,7 @@ public sealed partial class MainWindow : Window
         ControllerLegend.Visibility = _controllerConnected ? Visibility.Visible : Visibility.Collapsed;
         if (ActiveKeyboard is { } keyboard) { keyboard.HandleController(action); return; }
         if (_activePicker is { } picker) { picker.HandleController(action); return; }
-        if (_dialogActive) return;
+        if (_activeDialog is { } dialog) { HandleDialogControllerAction(dialog, action); return; }
         if (action == ControllerAction.Menu && TryCloseOpenComboBox()) return;
         switch (action)
         {
@@ -418,10 +432,39 @@ public sealed partial class MainWindow : Window
                     _ = EditTextFromControllerAsync(text);
                 break;
             case ControllerAction.Tertiary:
-                if (AppWindow.Presenter is OverlappedPresenter minimize) minimize.Minimize();
+                if (!TryHideToTray() && AppWindow.Presenter is OverlappedPresenter minimize)
+                    minimize.Minimize();
                 break;
             case ControllerAction.Accept:
                 ActivateFocusedControl();
+                break;
+        }
+    }
+
+    private static void HandleDialogControllerAction(ContentDialog dialog, ControllerAction action)
+    {
+        FocusNavigationDirection? direction = action switch
+        {
+            ControllerAction.Up => FocusNavigationDirection.Up,
+            ControllerAction.Down => FocusNavigationDirection.Down,
+            ControllerAction.Left => FocusNavigationDirection.Left,
+            ControllerAction.Right => FocusNavigationDirection.Right,
+            _ => null
+        };
+        if (direction is { } focusDirection)
+        {
+            FocusManager.TryMoveFocus(focusDirection, new FindNextElementOptions { SearchRoot = dialog });
+            return;
+        }
+
+        switch (action)
+        {
+            case ControllerAction.Accept:
+                if (FocusManager.GetFocusedElement(dialog.XamlRoot) is Button { IsEnabled: true } button)
+                    new ButtonAutomationPeer(button).Invoke();
+                break;
+            case ControllerAction.Back:
+                dialog.Hide();
                 break;
         }
     }
@@ -553,6 +596,7 @@ public sealed partial class MainWindow : Window
     }
 
     [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 }
 
 public sealed record RouteRequest(MainWindow Owner, string Route, Guid? ItemId);
