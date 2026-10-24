@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace GameProfileManager;
 
-/// <summary>Hides a transient InfoBar after it has been visible for the requested interval.</summary>
+/// <summary>Closes a transient InfoBar after the requested interval.</summary>
 internal sealed class InfoBarDismissTimer
 {
     private readonly InfoBar _bar;
@@ -16,14 +16,15 @@ internal sealed class InfoBarDismissTimer
         _timer = new DispatcherTimer { Interval = delay };
         _timer.Tick += (_, _) => Hide();
         _bar.Loaded += OnLoaded;
-        _bar.Unloaded += OnUnloaded;
+        _bar.Unloaded += (_, _) => _timer.Stop();
+        _bar.Closed += (_, _) => _timer.Stop();
     }
 
     public void Show(TimeSpan? delay = null)
     {
-        _bar.IsOpen = true;
         _timer.Stop();
         if (delay is { } interval) _timer.Interval = interval;
+        _bar.IsOpen = true;
         if (_bar.IsLoaded) _timer.Start();
     }
 
@@ -37,6 +38,4 @@ internal sealed class InfoBarDismissTimer
     {
         if (_bar.IsOpen) _timer.Start();
     }
-
-    private void OnUnloaded(object sender, RoutedEventArgs args) => _timer.Stop();
 }

@@ -20,7 +20,6 @@ public sealed partial class MainWindow : Window
     private readonly ShellTrayIcon _trayIcon;
     private readonly SdlControllerInput _controllerInput;
     private readonly InfoBarDismissTimer _statusDismissTimer;
-    private readonly InfoBarDismissTimer _rtssDismissTimer;
     private bool _exitRequested;
     private bool _leaveApproved;
     private bool _closeGuardPending;
@@ -49,7 +48,6 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         _statusDismissTimer = new InfoBarDismissTimer(StatusBar, TimeSpan.FromSeconds(7));
-        _rtssDismissTimer = new InfoBarDismissTimer(RtssBar, TimeSpan.FromSeconds(15));
         _viewModel = viewModel;
         ThemeManager.Apply(viewModel.Theme);
         ExtendsContentIntoTitleBar = true;
@@ -185,8 +183,7 @@ public sealed partial class MainWindow : Window
         RtssBar.Title = _viewModel.RtssStatus?.StartsWith("RTSS недоступен", StringComparison.Ordinal) == true
             ? "RTSS недоступен" : "RTSS закрыт";
         RtssBar.Message = _viewModel.RtssWarning;
-        if (_viewModel.RtssWarningVisible) _rtssDismissTimer.Show();
-        else _rtssDismissTimer.Hide();
+        RtssBar.IsOpen = _viewModel.RtssWarningVisible;
         StartRtssButton.Visibility = RtssClient.ProcessIsRunning ? Visibility.Collapsed : Visibility.Visible;
         StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
     }
