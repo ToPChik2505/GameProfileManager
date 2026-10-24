@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/GameProfileManager/Assets/gameprofilemanager_color.png" alt="Game Profile Manager icon" width="96" height="96">
+  <img src="src/GameProfileManager/Assets/GpmBranding/PNG/gpm_dark_256.png" alt="Game Profile Manager icon" width="96" height="96">
 </p>
 
 <h1 align="center">Game Profile Manager</h1>
@@ -25,6 +25,8 @@
 </p>
 
 **Platform:** Windows 11 (x64) · **UI:** WinUI 3 / Windows App SDK · **Runtime:** .NET 10 · **Current application version:** 2.0.0
+
+The approved dark application icon is used in Light, Dark, and System themes.
 
 **Jump to:** [Features](#features) · [Install](#install) · [Quick start](#quick-start) · [Profiles & monitors](#profiles-and-monitors) · [Troubleshooting](#troubleshooting) · [Build](#build-from-source)
 
@@ -75,7 +77,7 @@ The installer is self-contained; installing the .NET runtime or Windows App SDK 
 
 1. Open **My games** and import games from Steam/Epic Games or add an `.exe` manually.
 2. Check the selected executable. Some games have separate launchers and multiple executable files.
-3. Open **Profiles**, select an existing preset or **create an editable copy**, and configure its settings. Built-in presets are protected from editing.
+3. Open **Profiles**, select a starter preset or create a profile, and edit its settings. Starter presets can be edited but not deleted.
 4. Open the game, assign the profile, and select **Apply profile to game**. Use **Apply to all** to process the library sequentially.
 5. Check the reported result. You can use **Diagnostics** to inspect settings without changing them.
 

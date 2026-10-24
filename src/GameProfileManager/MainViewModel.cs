@@ -141,7 +141,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         else
         {
             target = Profiles.FirstOrDefault(item => item.Id == profileId.Value)!;
-            if (target is null || target.IsBuiltIn) { error = "Профиль не найден или защищён."; return false; }
+            if (target is null) { error = "Профиль не найден."; return false; }
         }
         target.Name = draft.Name.Trim();
         target.Description = draft.Description;
@@ -206,13 +206,13 @@ public sealed partial class MainViewModel : Observable, IDisposable
             UpdateFpsFractions();
         }
     }
-    public bool SelectedProfileIsEditable => !IsApplyingAll && SelectedProfile is { IsBuiltIn: false };
+    public bool SelectedProfileIsEditable => !IsApplyingAll && SelectedProfile is not null;
     public int SelectedProfileRtssLimiterChoice
     {
         get => SelectedProfile?.RtssLimiterMode is { } mode ? (int)mode : -1;
         set
         {
-            if (SelectedProfile is not { IsBuiltIn: false } profile || !CanEdit ||
+            if (SelectedProfile is not { } profile || !CanEdit ||
                 value != -1 && !Enum.IsDefined((RtssLimiterMode)value)) return;
             profile.RtssLimiterMode = value == -1 ? null : (RtssLimiterMode)value;
         }
@@ -249,7 +249,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public string SyncProgressMessage { get => _syncProgressMessage; private set => Set(ref _syncProgressMessage, value); }
     public double SyncProgressPercent { get => _syncProgressPercent; private set => Set(ref _syncProgressPercent, value); }
     public string SelectedProfileHelp => SelectedProfile is { IsBuiltIn: true }
-        ? "Стандартный профиль защищён. Создайте его копию, чтобы изменить параметры."
+        ? "Начальный профиль можно изменить, но нельзя удалить. Его параметры применятся ко всем назначенным играм после отдельного применения."
         : "Параметры применятся ко всем играм, которым назначен этот профиль.";
     public DisplayInfo? SelectedDisplay { get => _selectedDisplay; set => Set(ref _selectedDisplay, value); }
     public string DisplayStatus { get => _displayStatus; private set => Set(ref _displayStatus, value); }

@@ -11,7 +11,7 @@
       <TitleBar.LeftHeader>
         <StackPanel Orientation="Horizontal" Spacing="10" Margin="16,0,0,0" VerticalAlignment="Center"
                     IsHitTestVisible="False">
-          <Image Source="ms-appx:///Assets/gameprofilemanager_monochrome.png"
+          <Image Source="ms-appx:///Assets/GpmBranding/PNG/gpm_dark_128.png"
                  Width="32" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
           <TextBlock x:Name="AppTitleText" Text="GameProfileManager" Style="{ThemeResource BodyTextBlockStyle}"
                      VerticalAlignment="Center" />

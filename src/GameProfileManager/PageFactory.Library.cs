@@ -233,7 +233,7 @@ internal static partial class PageFactory
                     Secondary(vm.RtssStatus),
                     Secondary("Изменение общего профиля затронет все назначенные ему игры.")))),
             Buttons(ActionButton("Редактировать профиль", () => request.Owner.Navigate("profile-edit", profile?.Id),
-                    enabled: profile is { IsBuiltIn: false }),
+                    enabled: profile is not null),
                 ActionButton("Применить профиль к игре", () => vm.ApplyGameCommand.Execute(game), true)));
     }
 
@@ -346,7 +346,8 @@ internal static partial class PageFactory
             selectedUse.Text = profile is null ? "—" : vm.Games.Count(game =>
                 game.ProfileId == profile.Id || game.DisplayProfileAssignments.Any(item => item.ProfileId == profile.Id))
                 .ToString();
-            edit.IsEnabled = delete.IsEnabled = profile is { IsBuiltIn: false };
+            edit.IsEnabled = profile is not null;
+            delete.IsEnabled = profile is { IsBuiltIn: false };
             copy.IsEnabled = profile is not null;
         }
         list.SelectionChanged += (_, _) => { vm.SelectedProfile = list.SelectedItem as PerformanceProfile; UpdateSelection(); };

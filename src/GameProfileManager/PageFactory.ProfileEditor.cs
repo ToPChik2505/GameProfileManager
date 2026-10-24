@@ -13,8 +13,6 @@ internal static partial class PageFactory
         PerformanceProfile? source = request.ItemId is Guid id
             ? vm.Profiles.FirstOrDefault(item => item.Id == id) : null;
         if (editing && source is null) return Shell("Редактирование профиля", "Профиль не найден.");
-        if (editing && source!.IsBuiltIn) return Shell("Редактирование профиля", "Стандартный профиль защищён. Создайте его копию.");
-
         var draft = source is null ? new PerformanceProfile() : ProfilePresets.EditableCopy(source);
         if (!editing && source is not null) draft.Name = source.Name + " — копия";
         if (editing) draft.Name = source!.Name;

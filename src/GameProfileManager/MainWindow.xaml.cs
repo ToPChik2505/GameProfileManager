@@ -51,7 +51,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppWindow.Title = "GameProfileManager";
-        AppWindow.SetIcon("Assets/gameprofilemanager_monochrome.ico");
+        AppWindow.SetIcon("Assets/GpmBranding/ICO/gpm_dark.ico");
         AppWindow.Closing += OnAppWindowClosing;
         Closed += OnClosed;
         _viewModel.PropertyChanged += OnViewModelChanged;
@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window
         UpdateActivityBanner();
 
         _trayIcon = new ShellTrayIcon(WinRT.Interop.WindowNative.GetWindowHandle(this),
-            Path.Combine(AppContext.BaseDirectory, "Assets", "gameprofilemanager_monochrome.ico"),
+            Path.Combine(AppContext.BaseDirectory, "Assets", "GpmBranding", "ICO", "gpm_dark.ico"),
             RestoreWindow,
             () => _viewModel.VerifyCommand.Execute(null),
             () => _viewModel.ApplyCommand.Execute(null), ExitFromTray);
