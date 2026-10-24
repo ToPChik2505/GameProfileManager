@@ -650,6 +650,13 @@ public sealed partial class MainViewModel : Observable, IDisposable
 
     private Task StartRtssAsync() => RunUserActionAsync("Запускаем RTSS…", async () =>
     {
+        if (await Task.Run(() => RtssClient.ProcessIsRunning))
+        {
+            await RefreshIntegrationStatusAsync();
+            Notice = RtssWarningVisible ? "RTSS уже запущен, но интеграция недоступна. Проверьте папку RTSS в настройках."
+                : "RTSS уже запущен.";
+            return;
+        }
         string directory = string.IsNullOrWhiteSpace(RtssDirectory) ? RtssClient.DetectDirectory() ?? "" : RtssDirectory;
         string exe = Path.Combine(directory, "RTSS.exe");
         if (!File.Exists(exe))

@@ -150,6 +150,8 @@ The interface follows Windows display scaling (Per-Monitor V2 DPI) and the syste
 
 When returning to a regular page, the app restores its scroll position, selection, and page focus where the control still exists. The profile editor always starts from its current saved model; unsaved drafts are protected by the leave confirmation and are never cached. The optional isolated UI smoke writes page build time, UI-thread allocations, GC collection counts, and navigation-to-load time to `navigationSamples` in `smoke-result.json`.
 
+Game art and executable icons replace the generic game glyph once an image is available, including when the icon has transparent pixels. A failed image load restores the glyph.
+
 ## Updates and data
 
 - **Updates:** Open **Settings → Backups and updates → Check for updates**. This performs an on-demand check of the latest GitHub Release. Download and install updates manually; the app does not automatically install them.

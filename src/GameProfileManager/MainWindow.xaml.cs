@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using GameProfileManager.Integrations;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
@@ -179,6 +180,7 @@ public sealed partial class MainWindow : Window
             ? "RTSS недоступен" : "RTSS закрыт";
         RtssBar.Message = _viewModel.RtssWarning;
         RtssBar.IsOpen = _viewModel.RtssWarningVisible;
+        StartRtssButton.Visibility = RtssClient.ProcessIsRunning ? Visibility.Collapsed : Visibility.Visible;
         StartRtssButton.IsEnabled = _viewModel.StartRtssCommand.CanExecute(null);
     }
 

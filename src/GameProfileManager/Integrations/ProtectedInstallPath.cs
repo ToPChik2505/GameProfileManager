@@ -11,9 +11,14 @@ namespace GameProfileManager.Integrations;
 public static class ProtectedInstallPath
 {
     private const string TrustedInstallerSid = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
-    private static readonly FileSystemRights DangerousRights = FileSystemRights.Write | FileSystemRights.Modify |
+    // Composite rights such as FullControl also contain read bits. Testing their masks with
+    // bitwise AND would reject an ordinary Users:ReadAndExecute rule in Program Files.
+    private static readonly FileSystemRights DangerousRights = FileSystemRights.WriteData |
+        FileSystemRights.AppendData | FileSystemRights.WriteExtendedAttributes |
+        FileSystemRights.DeleteSubdirectoriesAndFiles | FileSystemRights.WriteAttributes |
         FileSystemRights.Delete | FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership |
-        FileSystemRights.FullControl;
+        (FileSystemRights)0x40000000 | // GENERIC_WRITE
+        (FileSystemRights)0x10000000;  // GENERIC_ALL
 
     public static string Validate(string path)
     {

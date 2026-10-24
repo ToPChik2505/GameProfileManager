@@ -292,19 +292,10 @@ internal static partial class PageFactory
 
     private static FrameworkElement GameIcon(GameProfileManager.Presentation.GameEntryViewModel? card, double size)
     {
-        var content = new Grid();
-        content.Children.Add(new FontIcon
-        {
-            Glyph = "\uE7F1", FontSize = size * 0.43,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
-        });
+        var icon = new GameIconView { Width = size, Height = size };
         if (card is not null)
-        {
-            var image = new Image { Width = size, Height = size, Stretch = Stretch.UniformToFill };
-            image.SetBinding(Image.SourceProperty, new Binding { Source = card, Path = new PropertyPath("Icon") });
-            content.Children.Add(image);
-        }
-        return new Border { Width = size, Height = size, Child = content,
+            icon.SetBinding(GameIconView.IconProperty, new Binding { Source = card, Path = new PropertyPath("Icon") });
+        return new Border { Width = size, Height = size, Child = icon,
             Background = Brush("ControlFillColorDefaultBrush"), CornerRadius = new CornerRadius(9) };
     }
 

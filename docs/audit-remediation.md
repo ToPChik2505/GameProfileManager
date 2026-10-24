@@ -27,6 +27,10 @@ The current manifest/UI startup path still elevates the whole WinUI process. `Ap
 | MAINT-01 | WPF comments and large MainWindow remained. | Corrected obsolete UI-thread comments; split update check and smoke into partial files; extracted the HTTP release lookup and bounded navigation diagnostics. Window placement and controller focus remain in MainWindow. | Release build; user functional check remains. | In progress. |
 | PKG-01 | Publish is self-contained without trimming. | Measure publish size/startup; preserve compatibility unless evidence supports a change. | No baseline yet. | Open. |
 
+## RTSS startup and game icon correction
+
+The protected-path check had a false positive: `FileSystemRights.FullControl` is a composite mask containing read bits, so an ordinary `Users:ReadAndExecute` ACL under Program Files matched the old dangerous-rights test. Read-only inspection of this machine's RTSS directory and `RTSSHooks64.dll` found protected owners and read-only Users access. The validator now checks only concrete mutation rights, plus generic write/all, while keeping owner, reparse-point, and final-path checks. When RTSS already runs, the UI hides the redundant Start button, and the command refreshes status instead of launching a second process. Game rows and detail headers now use a shared icon view that hides the glyph beneath a loaded image and restores it on image failure. Release build completed with zero warnings/errors; real RTSS loading and visual behavior await user verification. No RTSS/NVIDIA settings were written.
+
 ## Checks run so far
 
 - `dotnet --version` → `10.0.100`.
