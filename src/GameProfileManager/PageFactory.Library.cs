@@ -1,6 +1,7 @@
 using GameProfileManager.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace GameProfileManager;
 
@@ -25,27 +26,94 @@ internal static partial class PageFactory
             MetricCard("Требуют внимания", vm.ErrorCount.ToString(),
                 vm.ErrorCount == 0 ? "Проверенных проблем нет" : "Откройте диагностику",
                 vm.ErrorCount > 0 ? "CautionMetricValueTextStyle" : "MetricValueTextStyle"));
-        var recent = Column(Strong("Последние игры"));
+        var recentHeader = new Grid { ColumnSpacing = 12 };
+        recentHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        recentHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        recentHeader.Children.Add(Strong("Недавние игры"));
+        var allGames = ActionButton("Все игры", () => request.Owner.Navigate("games"));
+        allGames.MinHeight = 34;
+        allGames.Padding = new Thickness(10, 4, 10, 4);
+        Grid.SetColumn(allGames, 1);
+        recentHeader.Children.Add(allGames);
+        var recent = Column(recentHeader);
+        recent.Spacing = 8;
         var recentCards = vm.GameCards.OrderByDescending(item => item.Model.LastApplied).Take(4).ToArray();
         if (recentCards.Length == 0)
             recent.Children.Add(Secondary("Добавьте игровой EXE или импортируйте игры из Steam и Epic."));
         foreach (var game in recentCards)
             recent.Children.Add(RecentGameRow(game, () => request.Owner.Navigate("game", game.Id)));
         var actions = Column(Strong("Быстрые действия"));
-        foreach (var button in new[]
-        {
-            ActionButton("Открыть мои игры", () => request.Owner.Navigate("games"), true),
+        var actionGrid = QuickActionGrid(
+            ActionButton("Мои игры", () => request.Owner.Navigate("games"), true),
             ActionButton("Создать профиль", () => request.Owner.Navigate("profile-new")),
-            ActionButton("Диагностика", () => request.Owner.Navigate("diagnostics")),
-            ActionButton("Проверить настройки", () => vm.VerifyCommand.Execute(null))
-        })
+            ActionButton("Проверить настройки", () => vm.VerifyCommand.Execute(null)),
+            ActionButton("Диагностика", () => request.Owner.Navigate("diagnostics")));
+        actions.Children.Add(actionGrid);
+        return Shell("Обзор", "Состояние системы, недавние игры и быстрые действия", metrics,
+            DashboardColumns(Card(recent), Card(actions), 1.8, 1));
+    }
+
+    private static UIElement DashboardColumns(FrameworkElement primary, FrameworkElement secondary,
+        double primaryWeight, double secondaryWeight)
+    {
+        var grid = new Grid { ColumnSpacing = 16, RowSpacing = 16, VerticalAlignment = VerticalAlignment.Top };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(primaryWeight, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(secondaryWeight, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        primary.VerticalAlignment = VerticalAlignment.Top;
+        secondary.VerticalAlignment = VerticalAlignment.Top;
+        grid.Children.Add(primary);
+        grid.Children.Add(secondary);
+        Grid.SetColumn(secondary, 1);
+
+        void Arrange(double width)
         {
-            button.HorizontalAlignment = HorizontalAlignment.Stretch;
-            button.HorizontalContentAlignment = HorizontalAlignment.Left;
-            actions.Children.Add(button);
+            bool wide = width >= 930;
+            grid.ColumnDefinitions[0].Width = wide
+                ? new GridLength(primaryWeight, GridUnitType.Star) : new GridLength(1, GridUnitType.Star);
+            grid.ColumnDefinitions[1].Width = wide
+                ? new GridLength(secondaryWeight, GridUnitType.Star) : new GridLength(0);
+            grid.RowDefinitions[0].Height = GridLength.Auto;
+            grid.RowDefinitions[1].Height = wide ? new GridLength(0) : GridLength.Auto;
+            Grid.SetColumn(secondary, wide ? 1 : 0);
+            Grid.SetRow(secondary, wide ? 0 : 1);
         }
-        return Shell("Обзор", "Состояние системы и недавние действия", metrics,
-            ResponsivePair(Card(recent), Card(actions), 1.8, 1));
+
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
+        return grid;
+    }
+
+    private static Grid QuickActionGrid(params Button[] buttons)
+    {
+        var grid = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            buttons[i].MinHeight = 46;
+            buttons[i].HorizontalAlignment = HorizontalAlignment.Stretch;
+            buttons[i].HorizontalContentAlignment = HorizontalAlignment.Left;
+            grid.Children.Add(buttons[i]);
+        }
+
+        void Arrange(double width)
+        {
+            int columns = width >= 500 ? 2 : 1;
+            grid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+            grid.ColumnDefinitions[1].Width = columns == 2 ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Grid.SetColumn(buttons[i], columns == 2 ? i % 2 : 0);
+                Grid.SetRow(buttons[i], columns == 2 ? i / 2 : i);
+            }
+        }
+
+        grid.Loaded += (_, _) => Arrange(grid.ActualWidth);
+        grid.SizeChanged += (_, args) => Arrange(args.NewSize.Width);
+        return grid;
     }
 
     private static Border MetricCard(string title, string value, string detail,
@@ -63,17 +131,60 @@ internal static partial class PageFactory
 
     private static Button RecentGameRow(GameProfileManager.Presentation.GameEntryViewModel game, Action open)
     {
-        var content = new Grid { ColumnSpacing = 12 };
+        var content = new Grid { ColumnSpacing = 12, VerticalAlignment = VerticalAlignment.Center };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        content.ColumnDefinitions.Add(new ColumnDefinition());
-        content.Children.Add(GameIcon(game, 38));
-        var name = Column(Strong(game.Name), Secondary(game.ProfileDisplay), Secondary(game.StatusLabel));
-        Grid.SetColumn(name, 1);
-        content.Children.Add(name);
-        var button = new Button { Content = content, Tag = open, MinHeight = 58,
-            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.Children.Add(GameIcon(game, 42));
+
+        bool noProfile = game.Model.ProfileId is null && !game.Model.AutoSwitchProfile;
+        string detail = noProfile ? "Без профиля" : game.ProfileDisplay;
+        if (!noProfile && game.FpsDisplay != "—") detail += $" · {game.FpsDisplay} FPS";
+        var title = Strong(game.Name);
+        title.MaxLines = 1;
+        title.TextTrimming = TextTrimming.CharacterEllipsis;
+        var subtitle = Secondary(detail);
+        subtitle.MaxLines = 1;
+        subtitle.TextTrimming = TextTrimming.CharacterEllipsis;
+        var identity = Column(title, subtitle);
+        identity.Spacing = 3;
+        Grid.SetColumn(identity, 1);
+        content.Children.Add(identity);
+
+        if (!noProfile)
+        {
+            var status = RecentGameStatus(game.StatusLabel);
+            Grid.SetColumn(status, 2);
+            content.Children.Add(status);
+        }
+
+        var button = new Button { Content = content, Tag = open, MinHeight = 66, Padding = new Thickness(10, 8, 10, 8),
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center };
         button.Click += (_, _) => open();
         return button;
+    }
+
+    private static Border RecentGameStatus(string text)
+    {
+        Brush? tone = text switch
+        {
+            "Применён" => Brush("SystemFillColorSuccessBrush"),
+            "Ошибка" => Brush("SystemFillColorCriticalBrush"),
+            "Перезапустите" or "Недоступно" => Brush("SystemFillColorCautionBrush"),
+            _ => Brush("TextFillColorSecondaryBrush")
+        };
+        return new Border
+        {
+            BorderBrush = tone ?? Brush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            Background = Brush("ControlFillColorDefaultBrush"),
+            CornerRadius = new CornerRadius(7),
+            Padding = new Thickness(8, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock { Text = text, Foreground = tone, Style = Style("BodyStrongTextBlockStyle"),
+                TextWrapping = TextWrapping.NoWrap }
+        };
     }
 
     private static PageComposition Games(RouteRequest request)
@@ -187,6 +298,12 @@ internal static partial class PageFactory
         assignment.Unloaded += (_, _) => game.PropertyChanged -= selectionChanged;
         var statusText = Strong(game, nameof(GameEntry.StatusLabel));
         statusText.Style = Style("AccentMetricValueTextStyle");
+        var graphicsSnapshotName = Strong("Проверяем текущие файлы…");
+        var graphicsSnapshotDetail = Secondary("");
+        var graphicsSnapshotRow = DetailRow("Текущий снимок", graphicsSnapshotName);
+        bool hasGraphicsSnapshotInfo = vm.HasGameConfigSnapshotInfo(game);
+        graphicsSnapshotRow.Visibility = graphicsSnapshotDetail.Visibility = hasGraphicsSnapshotInfo
+            ? Visibility.Visible : Visibility.Collapsed;
         var actions = Buttons(
             ActionButton("Применить профиль к игре", () => vm.ApplyGameCommand.Execute(game), true),
             ActionButton("Выбрать EXE", () => vm.ChooseExeCommand.Execute(null)),
@@ -196,19 +313,55 @@ internal static partial class PageFactory
                     "Снять профиль игры и восстановить исходные значения RTSS/NVIDIA, если они сохранены?", "Восстановить"))
                     vm.RestoreCommand.Execute(null);
             }));
-        return Shell("Настройки игры", "Профиль и правила дисплеев",
-            GameHeader(request, game), ResponsivePair(Card(assignment), Card(Column(
-                Strong("Текущее состояние"),
-                statusText,
-                Secondary(game, nameof(GameEntry.Detail)),
-                new Border { Height = 1, Background = Brush("DividerStrokeColorDefaultBrush") },
-                DetailRow("Профиль", Strong(game, nameof(GameEntry.ProfileDisplay))),
-                DetailRow("Лимит FPS", Strong(game, nameof(GameEntry.FpsDisplay))),
-                DetailRow("Режим NVIDIA", Strong(game, nameof(GameEntry.VrrDisplay))),
-                DetailRow("V-Sync", Strong(game, nameof(GameEntry.VSyncDisplay))),
-                DetailRow("Лимитер RTSS", Strong(game, nameof(GameEntry.RtssLimiterDisplay))),
-                DetailRow("Применено", Strong(game, nameof(GameEntry.LastAppliedDisplay)))))),
-            actions);
+        var currentState = Card(Column(
+            Strong("Текущее состояние"),
+            statusText,
+            Secondary(game, nameof(GameEntry.Detail)),
+            new Border { Height = 1, Background = Brush("DividerStrokeColorDefaultBrush") },
+            DetailRow("Профиль", Strong(game, nameof(GameEntry.ProfileDisplay))),
+            DetailRow("Лимит FPS", Strong(game, nameof(GameEntry.FpsDisplay))),
+            DetailRow("Режим NVIDIA", Strong(game, nameof(GameEntry.VrrDisplay))),
+            DetailRow("V-Sync", Strong(game, nameof(GameEntry.VSyncDisplay))),
+            DetailRow("Лимитер RTSS", Strong(game, nameof(GameEntry.RtssLimiterDisplay))),
+            DetailRow("Применено", Strong(game, nameof(GameEntry.LastAppliedDisplay))),
+            graphicsSnapshotRow,
+            graphicsSnapshotDetail));
+        var composition = Shell("Настройки игры", "Профиль и правила дисплеев",
+            GameHeader(request, game), ResponsivePair(Card(assignment), currentState), actions);
+
+        int snapshotRefreshGeneration = 0;
+        bool pageUnloaded = false;
+        async Task RefreshGraphicsSnapshotStatusAsync()
+        {
+            int generation = Interlocked.Increment(ref snapshotRefreshGeneration);
+            bool showSnapshot = vm.HasGameConfigSnapshotInfo(game);
+            graphicsSnapshotRow.Visibility = graphicsSnapshotDetail.Visibility = showSnapshot
+                ? Visibility.Visible : Visibility.Collapsed;
+            if (!showSnapshot) return;
+
+            graphicsSnapshotName.Text = "Проверяем текущие файлы…";
+            graphicsSnapshotDetail.Text = "";
+            var result = await vm.ReadCurrentGameConfigSnapshotAsync(game);
+            if (pageUnloaded || generation != Volatile.Read(ref snapshotRefreshGeneration)) return;
+            graphicsSnapshotName.Text = result.Name;
+            graphicsSnapshotDetail.Text = result.Detail;
+        }
+
+        System.ComponentModel.PropertyChangedEventHandler snapshotStateChanged = (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainViewModel.GameConfigStateVersion))
+                _ = RefreshGraphicsSnapshotStatusAsync();
+        };
+        vm.PropertyChanged += snapshotStateChanged;
+        if (composition.Content is FrameworkElement pageRoot)
+            pageRoot.Unloaded += (_, _) =>
+            {
+                pageUnloaded = true;
+                Interlocked.Increment(ref snapshotRefreshGeneration);
+                vm.PropertyChanged -= snapshotStateChanged;
+            };
+        _ = RefreshGraphicsSnapshotStatusAsync();
+        return composition;
     }
 
     private static PageComposition GameFps(RouteRequest request)
@@ -281,22 +434,6 @@ internal static partial class PageFactory
             Buttons(ActionButton("Проверить сейчас", () => vm.VerifyCommand.Execute(null)),
                 ActionButton("Применить профиль к игре", () => vm.ApplyGameCommand.Execute(game), true)));
     }
-
-    private static PageComposition Graphics(RouteRequest request)
-    {
-        var game = Game(request);
-        return Shell("Графические конфигурации", "Планируемая подсистема снимков игровых файлов",
-            game is null ? Secondary("Сначала выберите игру.") : GameHeader(request, game),
-            Message("Функция недоступна", "Поиск, сохранение и применение снимков графических файлов пока не реализованы.",
-                InfoBarSeverity.Warning),
-            Buttons(ActionButton("Новый снимок", () => request.Owner.Navigate("graphics-new", game?.Id), enabled: false),
-                ActionButton("Выбрать файлы", () => request.Owner.Navigate("graphics-files", game?.Id), enabled: false)));
-    }
-
-    private static PageComposition GraphicsUnavailable(RouteRequest request) => Shell(
-        request.Route == "graphics-new" ? "Новый снимок графики" : "Выбор файлов конфигурации",
-        "Этот сценарий будет доступен после реализации безопасной работы с игровыми файлами.",
-        Message("Функция недоступна", "GameProfileManager не читает и не меняет графические файлы игры."));
 
     private static PageComposition Profiles(RouteRequest request)
     {

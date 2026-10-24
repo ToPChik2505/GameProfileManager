@@ -98,7 +98,8 @@ public sealed partial class MainViewModel
             var previousGames = Games.ToArray();
             var discovered = await Task.Run(() => SteamDiscovery.FindInstalled());
             if (_disposed) return;
-            var result = GameImportService.MergeSteam(Games, _state.Backups, discovered);
+            var protectedGameIds = Games.Where(game => HasGameConfigData(game.Id)).Select(game => game.Id).ToHashSet();
+            var result = GameImportService.MergeSteam(Games, _state.Backups, discovered, protectedGameIds);
             foreach (var removed in previousGames.Where(game => !Games.Contains(game))) Unhook(removed);
             foreach (var game in result.AddedGames) Hook(game);
             RestoreGameSelection();
@@ -113,7 +114,7 @@ public sealed partial class MainViewModel
         finally
         {
             EndActivity();
-            if (!_disposed) { SaveOnly(false); UpdateSummary(); }
+            if (!_disposed) { SaveOnly(false); UpdateSummary(); _ = ReconcileGameConfigsAsync(); }
         }
     }
 
@@ -138,7 +139,7 @@ public sealed partial class MainViewModel
         finally
         {
             EndActivity();
-            if (!_disposed) { SaveOnly(false); UpdateSummary(); }
+            if (!_disposed) { SaveOnly(false); UpdateSummary(); _ = ReconcileGameConfigsAsync(); }
         }
     }
 

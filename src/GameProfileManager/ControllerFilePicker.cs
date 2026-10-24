@@ -13,23 +13,25 @@ internal sealed class ControllerFilePicker
 
     private readonly MainWindow _owner;
     private readonly string _pattern;
+    private readonly bool _multiple;
     private readonly ContentDialog _dialog;
     private readonly ListView _list = new() { MinHeight = 240, MaxHeight = 430, SelectionMode = ListViewSelectionMode.Single };
     private readonly TextBlock _location = new() { TextWrapping = TextWrapping.Wrap };
-    private readonly InfoBar _error = new() { IsOpen = false, Severity = InfoBarSeverity.Warning, IsClosable = false };
-    private readonly InfoBarDismissTimer _errorDismissTimer;
+    private readonly InfoBar _error = new() { IsOpen = false, Severity = InfoBarSeverity.Warning, IsClosable = true };
     private readonly Button _upButton;
     private CancellationTokenSource? _loadCancellation;
     private int _loadGeneration;
     private bool _closed;
     private string? _directory;
     private string? _result;
+    private readonly List<string> _results = [];
 
-    public ControllerFilePicker(MainWindow owner, string title, string pattern, string? initialDirectory)
+    public ControllerFilePicker(MainWindow owner, string title, string pattern, string? initialDirectory, bool multiple = false)
     {
         _owner = owner;
-        _errorDismissTimer = new InfoBarDismissTimer(_error, TimeSpan.FromSeconds(8));
         _pattern = pattern;
+        _multiple = multiple;
+        _list.SelectionMode = multiple ? ListViewSelectionMode.Multiple : ListViewSelectionMode.Single;
         _directory = Directory.Exists(initialDirectory) ? initialDirectory : null;
         _dialog = new ContentDialog
         {
@@ -52,13 +54,31 @@ internal sealed class ControllerFilePicker
         {
             string path = pathInput.Text.Trim();
             if (Directory.Exists(path)) await LoadAsync(path);
-            else if (File.Exists(path) && Matches(path)) { _result = path; _dialog.Hide(); }
+            else if (File.Exists(path) && Matches(path))
+            {
+                if (_multiple)
+                {
+                    if (!_results.Contains(path, StringComparer.OrdinalIgnoreCase)) _results.Add(path);
+                    ShowError($"Добавлено файлов: {_results.Count}. Нажмите «Готово», чтобы завершить.");
+                }
+                else { _result = path; _dialog.Hide(); }
+            }
             else ShowError("Файл или папка не найдены.");
         }));
         layout.Children.Add(_error);
         layout.Children.Add(_list);
-        _list.DoubleTapped += (_, _) => OpenSelected();
-        layout.Children.Add(Button("Открыть выбранное", OpenSelected));
+        _list.DoubleTapped += (_, _) =>
+        {
+            if (!_multiple) OpenSelected();
+            else if (_list.SelectedItem is Entry { IsDirectory: true } directory) _ = LoadAsync(directory.Path);
+            else AddSelectedFiles();
+        };
+        if (multiple)
+        {
+            layout.Children.Add(Button("Добавить выбранные файлы", AddSelectedFiles));
+            layout.Children.Add(Button("Готово", () => _dialog.Hide()));
+        }
+        else layout.Children.Add(Button("Открыть выбранное", OpenSelected));
         _dialog.Content = new ScrollViewer { Content = layout, MaxHeight = 560 };
         _dialog.Closed += (_, _) =>
         {
@@ -74,6 +94,13 @@ internal sealed class ControllerFilePicker
         return _result;
     }
 
+    public async Task<IReadOnlyList<string>> ShowManyAsync()
+    {
+        await LoadAsync(_directory);
+        await _owner.ShowDialogAsync(_dialog);
+        return _results.ToArray();
+    }
+
     public void HandleController(ControllerAction action)
     {
         switch (action)
@@ -83,7 +110,9 @@ internal sealed class ControllerFilePicker
                 if (_list.Items.Count > 0)
                     _list.SelectedIndex = Math.Clamp(_list.SelectedIndex + (action == ControllerAction.Down ? 1 : -1), 0, _list.Items.Count - 1);
                 break;
-            case ControllerAction.Accept: OpenSelected(); break;
+            case ControllerAction.Accept:
+                if (_multiple) AddSelectedFiles(); else OpenSelected();
+                break;
             case ControllerAction.Back: _dialog.Hide(); break;
             case ControllerAction.Secondary: _ = LoadAsync(null); break;
         }
@@ -112,7 +141,6 @@ internal sealed class ControllerFilePicker
             _upButton.IsEnabled = directory is not null;
             _list.ItemsSource = entries;
             _list.SelectedIndex = entries.Length > 0 ? 0 : -1;
-            _errorDismissTimer.Hide();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
@@ -152,11 +180,27 @@ internal sealed class ControllerFilePicker
         _dialog.Hide();
     }
 
-    private bool Matches(string path) => _pattern == "*.exe"
-        ? Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase)
-        : Path.GetFileName(path).Equals("RTSSHooks64.dll", StringComparison.OrdinalIgnoreCase);
+    private void AddSelectedFiles()
+    {
+        foreach (var entry in _list.SelectedItems.OfType<Entry>())
+        {
+            if (entry.IsDirectory) continue;
+            if (!Matches(entry.Path)) { ShowError("Выберите поддерживаемые файлы конфигурации."); return; }
+            if (!_results.Contains(entry.Path, StringComparer.OrdinalIgnoreCase)) _results.Add(entry.Path);
+        }
+        if (_results.Count > 0) ShowError($"Добавлено файлов: {_results.Count}. Выберите ещё или нажмите «Готово».");
+    }
 
-    private void ShowError(string message) { _error.Message = message; _errorDismissTimer.Show(); }
+    private bool Matches(string path) => _pattern switch
+    {
+        "*.exe" => Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase),
+        "RTSSHooks64.dll" => Path.GetFileName(path).Equals("RTSSHooks64.dll", StringComparison.OrdinalIgnoreCase),
+        "*.zip" => Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase),
+        "*" or "*.*" => true,
+        _ => Path.GetExtension(path).Equals(_pattern.TrimStart('*'), StringComparison.OrdinalIgnoreCase)
+    };
+
+    private void ShowError(string message) { _error.Message = message; _error.IsOpen = true; }
 
     private static Button Button(string text, Action action)
     {

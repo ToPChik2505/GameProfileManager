@@ -72,6 +72,7 @@ public sealed partial class MainViewModel
             DisplayStatus = found.Count == 0 ? "Windows не обнаружила активные экраны" :
                 found.Any(d => d.DynamicRefresh) ? "Динамическая частота: автоматический лимит недоступен" :
                 "Параметры экранов обновляются автоматически";
+            _ = ReconcileGameConfigsAsync();
             if (changed.Length == 0) return;
             // Запись RTSS/NVIDIA может длиться долго. Не выполняем её в обработчике DispatcherTimer.
             _ = ApplyDisplayChangesAsync(changed);
@@ -118,6 +119,7 @@ public sealed partial class MainViewModel
             SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
+            _ = ReconcileGameConfigsAsync();
         }
     }
 

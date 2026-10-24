@@ -65,6 +65,7 @@ public sealed partial class MainViewModel
             SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
+            _ = ReconcileGameConfigsAsync();
         }
     }
 

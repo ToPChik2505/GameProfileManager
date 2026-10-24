@@ -24,4 +24,16 @@ public sealed class SyncOperationCoordinator(SyncService service)
         }
         finally { _gate.Release(); }
     }
+
+    /// <summary>Serializes file/registry configuration transactions with RTSS/NVIDIA operations.</summary>
+    public async Task<Exception?> ExecuteGameConfigAsync(Func<Task> operation)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            try { await operation(); return null; }
+            catch (Exception ex) { return ex; }
+        }
+        finally { _gate.Release(); }
+    }
 }

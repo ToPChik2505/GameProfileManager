@@ -19,7 +19,6 @@ public sealed partial class MainWindow : Window
     private readonly MainViewModel _viewModel;
     private readonly ShellTrayIcon _trayIcon;
     private readonly SdlControllerInput _controllerInput;
-    private readonly InfoBarDismissTimer _statusDismissTimer;
     private bool _exitRequested;
     private bool _leaveApproved;
     private bool _closeGuardPending;
@@ -29,6 +28,12 @@ public sealed partial class MainWindow : Window
     private bool _controllerMode;
     private bool _controllerConnected;
     private bool _playStationController;
+    private static readonly string[] ErrorNoticeMarkers =
+    [
+        "ошибка", "не удалось", "не завершён", "не завершена", "не завершено", "не найден", "не найдены",
+        "не сохранён", "не сохранена", "не изменён", "не изменена", "не применён", "не применена",
+        "не определена", "остановлен", "остановлена", "конфликт", "отклонён", "отклонена", "отказано"
+    ];
     private readonly NavigationDiagnostics _navigationDiagnostics = new();
     private readonly Dictionary<(string Route, Guid? ItemId), RouteViewState> _pageStates = new();
     private NavigationProbe? _pendingNavigationProbe;
@@ -47,7 +52,6 @@ public sealed partial class MainWindow : Window
     public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
-        _statusDismissTimer = new InfoBarDismissTimer(StatusBar, TimeSpan.FromSeconds(7));
         _viewModel = viewModel;
         ThemeManager.Apply(viewModel.Theme);
         ExtendsContentIntoTitleBar = true;
@@ -71,6 +75,7 @@ public sealed partial class MainWindow : Window
         _controllerInput.StatusChanged += UpdateControllerStatus;
         _controllerInput.Start();
         _viewModel.PickLocalFileAsync = PickLocalFileAsync;
+        _viewModel.PickLocalFilesAsync = PickLocalFilesAsync;
         RootLayout.SizeChanged += (_, args) =>
             AppTitleFullName.Visibility = args.NewSize.Width < 640 ? Visibility.Collapsed : Visibility.Visible;
         RootLayout.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnRootKeyDown), true);
@@ -164,10 +169,9 @@ public sealed partial class MainWindow : Window
         if (args.PropertyName == nameof(MainViewModel.Notice))
         {
             StatusBar.Message = _viewModel.Notice;
-            StatusBar.Severity = _viewModel.Notice.StartsWith("Ошибка", StringComparison.OrdinalIgnoreCase)
+            StatusBar.Severity = IsErrorNotice(_viewModel.Notice)
                 ? InfoBarSeverity.Error : InfoBarSeverity.Informational;
-            _statusDismissTimer.Show(StatusBar.Severity == InfoBarSeverity.Error
-                ? TimeSpan.FromSeconds(12) : TimeSpan.FromSeconds(7));
+            StatusBar.IsOpen = true;
         }
         if (args.PropertyName == nameof(MainViewModel.Theme)) ThemeManager.Apply(_viewModel.Theme);
         if (args.PropertyName is nameof(MainViewModel.RtssWarningVisible) or nameof(MainViewModel.RtssWarning))
@@ -177,6 +181,9 @@ public sealed partial class MainWindow : Window
             or nameof(MainViewModel.IsApplyingAll))
             UpdateActivityBanner();
     }
+
+    private static bool IsErrorNotice(string message) => ErrorNoticeMarkers.Any(marker =>
+        message.Contains(marker, StringComparison.OrdinalIgnoreCase));
 
     private void UpdateRtssBar()
     {
@@ -501,7 +508,7 @@ public sealed partial class MainWindow : Window
             {
                 CommitButtonText = "Выбрать"
             };
-            systemPicker.FileTypeFilter.Add(pattern == "*.exe" ? ".exe" : ".dll");
+            AddPickerFileTypes(systemPicker, pattern);
             var result = await systemPicker.PickSingleFileAsync();
             return result?.Path;
         }
@@ -509,6 +516,30 @@ public sealed partial class MainWindow : Window
         _activePicker = picker;
         try { return await picker.ShowAsync(); }
         finally { _activePicker = null; }
+    }
+
+    private async Task<IReadOnlyList<string>> PickLocalFilesAsync(string title, string pattern, string? initialDirectory)
+    {
+        if (!_controllerMode || !_controllerConnected)
+        {
+            var systemPicker = new FileOpenPicker(AppWindow.Id) { CommitButtonText = "Выбрать" };
+            AddPickerFileTypes(systemPicker, pattern);
+            var files = await systemPicker.PickMultipleFilesAsync();
+            return files.Select(file => file.Path).ToArray();
+        }
+        var picker = new ControllerFilePicker(this, title, pattern, initialDirectory, multiple: true);
+        _activePicker = picker;
+        try { return await picker.ShowManyAsync(); }
+        finally { _activePicker = null; }
+    }
+
+    private static void AddPickerFileTypes(FileOpenPicker picker, string pattern)
+    {
+        if (pattern == "*.exe") { picker.FileTypeFilter.Add(".exe"); return; }
+        if (pattern == "RTSSHooks64.dll") { picker.FileTypeFilter.Add(".dll"); return; }
+        if (pattern == "*.zip") { picker.FileTypeFilter.Add(".zip"); return; }
+        foreach (string extension in new[] { ".ini", ".json", ".cfg", ".xml", ".toml", ".yaml", ".yml", ".txt", ".conf", ".config", ".properties", ".settings", ".dat", ".bin" })
+            picker.FileTypeFilter.Add(extension);
     }
 
     internal static IEnumerable<DependencyObject> Descendants(DependencyObject root)

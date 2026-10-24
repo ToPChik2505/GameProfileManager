@@ -1,69 +1,42 @@
-<p align="center">
-  <img src="src/GameProfileManager/Assets/GpmBranding/PNG/gpm_dark_256.png" alt="GPM icon" width="96" height="96">
-</p>
+# GameProfileManager
 
-<h1 align="center">GPM — Game Profile Manager</h1>
+Windows 11 app for per-game performance profiles and display-specific graphics configuration snapshots.
 
-<p align="center">Per-game FPS limits and NVIDIA settings through RTSS and NVIDIA DRS on Windows 11.</p>
-
-<p align="center">
-  <a href="README.md"><strong>English</strong></a> · <a href="README.ru.md">Русский</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/Vladislav2505/GameProfileManager/releases">Download</a> ·
-  <a href="https://github.com/Vladislav2505/GameProfileManager/issues">Issues</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/Vladislav2505/GameProfileManager/actions/workflows/installer.yml"><img src="https://github.com/Vladislav2505/GameProfileManager/actions/workflows/installer.yml/badge.svg" alt="Windows build"></a>
-</p>
-
-GPM manages profiles for individual game executables. It saves the original RTSS and NVIDIA settings before applying a profile, reads the result back, and can restore those original values.
+[Download the latest release](https://github.com/Vladislav2505/GameProfileManager/releases) · [Report an issue](https://github.com/Vladislav2505/GameProfileManager/issues) · [Русская версия](README.ru.md)
 
 ## Features
 
-- Set an RTSS FPS limit and per-game NVIDIA G-SYNC/fixed-refresh and V-Sync options.
-- Assign one profile per game or different profiles for selected displays.
-- Import games from Steam and Epic Games, or add an executable manually.
-- Check applied settings, restore originals, and export a backup of GPM data.
-- Use a WinUI 3 interface with controller support, system tray, and light/dark themes.
+- Set per-game FPS limits through RTSS and manage supported NVIDIA profile options through NVIDIA DRS.
+- Save graphics configuration snapshots from files and selected registry values, assign them to displays, and optionally switch snapshots using the effective-display rules.
+- Keep safety copies and recover interrupted multi-file operations. GPM does not close games and will not capture or apply configuration while a game is running or a file conflict is unresolved.
+- Manage games imported from Steam or Epic, or added by executable; use the WinUI 3 interface with gamepad support.
+- Use PCGamingWiki search without credentials, or configure an optional bot password for structured GameData results. The password is stored in Windows Credential Manager.
 
-## Requirements and installation
+## Requirements
 
-- Windows 11 x64 with an NVIDIA GPU and compatible driver.
-- [RivaTuner Statistics Server (RTSS)](https://www.guru3d.com/download/rtss-rivatuner-statistics-server-download/) installed and running when applying profiles.
-- Administrator approval when starting the current version of GPM.
+- Windows 11 x64.
+- NVIDIA driver for NVIDIA profile settings; RTSS installed and running for RTSS features.
 
-Download the installer from [GitHub Releases](https://github.com/Vladislav2505/GameProfileManager/releases). It includes the required .NET and Windows App SDK runtime components. If GPM cannot find RTSS, select its installation directory in **Settings**.
+Download and run the installer from [GitHub Releases](https://github.com/Vladislav2505/GameProfileManager/releases).
 
 ## Quick start
 
-1. Add a game in **My games** and confirm its executable.
-2. Create or edit a profile, then assign it to the game.
-3. Select **Apply profile to game** and review the result. Use **Diagnostics** to check settings without changing them.
+1. Add a game and confirm its executable.
+2. Create a profile, assign it to the game, then apply it.
+3. To switch graphics settings by display, add the game's configuration files, save a snapshot for each setup, assign snapshots to displays, and enable automatic switching.
 
-Assigning a profile saves a choice in GPM; **Apply** writes to RTSS and NVIDIA DRS. Automatic application is optional. Readback confirms saved settings, not actual in-game FPS or VRR operation. A running game may need to restart before driver changes take effect.
+Only selected configuration sources are managed. Automatic switching uses GPM's effective-display selection and does not detect which monitor contains the game window. If files change outside GPM and do not match a saved snapshot, switching stops and preserves a safety copy.
 
-GPM stores its data in `%LOCALAPPDATA%\GameProfileManager\profiles.db` and preserves existing 1.x data. Exit GPM completely, including its tray icon, before upgrading. You can export a JSON backup in **Settings**.
+## Data and backups
 
-## Limitations
-
-GPM supports NVIDIA and RTSS; it does not launch games or change Windows display settings. It does not detect which monitor a game window occupies. RTSS identifies profiles by executable filename, so GPM blocks ambiguous writes when different games share that name. The **Graphics configurations** page is a preview; game configuration file snapshots are not implemented.
+Profiles and settings are stored in %LOCALAPPDATA%\GameProfileManager\profiles.db; existing JSON backup workflows remain supported. Graphics snapshots and transaction recovery data are stored under %LOCALAPPDATA%\GameProfileManager\game-configs and %LOCALAPPDATA%\GameProfileManager\transactions. Graphics data has a separate ZIP export/import.
 
 ## Build from source
 
-On Windows 11, install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run from the repository root:
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), then run from the repository root:
 
 ```powershell
-dotnet build .\GameProfileManager.slnx -c Release
 dotnet publish .\src\GameProfileManager\GameProfileManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -o .\artifacts\publish
 ```
 
-Run `GameProfileManager.exe` from the complete `artifacts\publish` directory; the EXE needs its accompanying files. To build the installer, install [Inno Setup](https://jrsoftware.org/isdl.php) and run `.\scripts\build-installer.ps1`.
-
-## Support and license
-
-Report bugs in [Issues](https://github.com/Vladislav2505/GameProfileManager/issues), including the GPM, Windows, NVIDIA driver, and RTSS versions and steps to reproduce. For source changes, follow [AGENTS.md](AGENTS.md).
-
-No project-wide license is currently included. Public source access alone does not grant redistribution or modification rights. Bundled SDL3 has a [separate license](src/GameProfileManager/Native/SDL3-LICENSE.txt).
+Run GameProfileManager.exe from the complete publish folder. The SDL3 controller library has its own license at [SDL3-LICENSE.txt](src/GameProfileManager/Native/SDL3-LICENSE.txt). The repository does not currently include a project-wide license.

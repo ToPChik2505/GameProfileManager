@@ -38,26 +38,15 @@ public static class ProfileResolver
             var legacy = FindProfile(state, game.ProfileId);
             return legacy is null
                 ? ProfileResolution.Unresolved("Профиль по умолчанию не выбран или удалён")
-                : new(legacy, DisplayFps.ChooseDisplay(state, game, displays), true, "Используется профиль игры по умолчанию");
+                : new(legacy, EffectiveDisplayResolver.ResolveLegacy(state, game, displays), true, "Используется профиль игры по умолчанию");
         }
 
         if (game.DisplayProfileAssignments.GroupBy(a => a.DisplayId, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1))
             return ProfileResolution.Unresolved("В назначениях обнаружен повторяющийся ID дисплея");
 
-        DisplayInfo? selected = game.DisplayProfilePolicy switch
-        {
-            DisplayProfilePolicy.PreferredDisplay => FindUniquePreferred(state, game, displays),
-            DisplayProfilePolicy.WindowsPrimary => FindUniquePrimary(displays),
-            DisplayProfilePolicy.PinnedDisplay => FindPinned(game, displays),
-            _ => null
-        };
-        if (selected is null)
-            return ProfileResolution.Unresolved(game.DisplayProfilePolicy switch
-            {
-                DisplayProfilePolicy.PinnedDisplay => "Закреплённый дисплей недоступен или не выбран",
-                DisplayProfilePolicy.WindowsPrimary => "Основной дисплей Windows недоступен или неоднозначен",
-                _ => "Предпочтительный дисплей недоступен или неоднозначен"
-            });
+        var displayResolution = EffectiveDisplayResolver.Resolve(state, game, displays);
+        var selected = displayResolution.Display;
+        if (!displayResolution.IsResolved || selected is null) return ProfileResolution.Unresolved(displayResolution.Reason);
 
         var assignment = game.DisplayProfileAssignments.SingleOrDefault(a =>
             a.DisplayId.Equals(selected.Id, StringComparison.OrdinalIgnoreCase));
@@ -77,23 +66,4 @@ public static class ProfileResolver
     private static PerformanceProfile? FindProfile(AppState state, Guid? id) =>
         id is { } value ? state.Profiles.FirstOrDefault(profile => profile.Id == value) : null;
 
-    private static DisplayInfo? FindUniquePrimary(IReadOnlyList<DisplayInfo> displays) =>
-        displays.Where(display => display.IsPrimary).Take(2).ToArray() is [var only] ? only : null;
-
-    private static DisplayInfo? FindPinned(GameEntry game, IReadOnlyList<DisplayInfo> displays) =>
-        FindUniqueById(game.DisplayId, displays);
-
-    private static DisplayInfo? FindUniquePreferred(AppState state, GameEntry game, IReadOnlyList<DisplayInfo> displays)
-    {
-        string id = !string.IsNullOrWhiteSpace(game.DisplayId) ? game.DisplayId : state.DefaultDisplayId;
-        if (!string.IsNullOrWhiteSpace(id)) return FindUniqueById(id, displays);
-        var primary = FindUniquePrimary(displays);
-        return primary ?? (displays.Count == 1 ? displays[0] : null);
-    }
-
-    private static DisplayInfo? FindUniqueById(string id, IReadOnlyList<DisplayInfo> displays)
-    {
-        var matches = displays.Where(display => display.Id.Equals(id, StringComparison.OrdinalIgnoreCase)).Take(2).ToArray();
-        return matches.Length == 1 ? matches[0] : null;
-    }
 }

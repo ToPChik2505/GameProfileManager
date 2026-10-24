@@ -94,6 +94,8 @@ public sealed partial class MainViewModel
                 if (e.PropertyName is nameof(GameEntry.ProfileId) or nameof(GameEntry.DisplayId) or
                     nameof(GameEntry.AutoSwitchProfile) or nameof(GameEntry.DisplayProfilePolicy)) SaveOnly(false);
                 else ScheduleSave();
+                if (e.PropertyName is nameof(GameEntry.DisplayId) or nameof(GameEntry.DisplayProfilePolicy))
+                    _ = ReconcileGameConfigsAsync();
             }
         }
         };

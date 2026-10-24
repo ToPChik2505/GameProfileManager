@@ -78,7 +78,7 @@ internal static class GameExecutableDiscovery
     private static bool IsExcluded(string path)
     {
         string name = Path.GetFileName(path).ToLowerInvariant();
-        return new[] { "unins", "crash", "setup", "redist", "launcher", "webhelper", "cefsubprocess", "report", "7za", "compiler", "d3dconfig", "breakpad", "bootstrap", "installer", "service", "browser", "protected_game", "playgtav", "dedicated_server" }
+        return new[] { "unins", "crash", "setup", "redist", "launcher", "webhelper", "cefsubprocess", "report", "7za", "compiler", "d3dconfig", "breakpad", "bootstrap", "installer", "service", "browser", "protected_game", "dedicated_server" }
             .Any(name.Contains);
     }
 }

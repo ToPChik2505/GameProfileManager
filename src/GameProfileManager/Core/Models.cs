@@ -133,6 +133,7 @@ public sealed class GameEntry : Observable
     private DisplayProfilePolicy _displayProfilePolicy;
     private string _displayProfileTargetId = "";
     public ObservableCollection<DisplayProfileAssignment> DisplayProfileAssignments { get; set; } = new();
+    public GameConfigSettings GameConfigSettings { get; set; } = new();
     public bool AutoSwitchProfile { get => _autoSwitchProfile; set { if (Set(ref _autoSwitchProfile, value)) Changed(nameof(StatusLabel)); } }
     public DisplayProfilePolicy DisplayProfilePolicy { get => _displayProfilePolicy; set => Set(ref _displayProfilePolicy, value); }
     public string DisplayProfileTargetId { get => _displayProfileTargetId; set => Set(ref _displayProfileTargetId, value ?? ""); }
@@ -194,6 +195,10 @@ public sealed class AppState
     public ObservableCollection<PerformanceProfile> Profiles { get; set; } = new();
     public ObservableCollection<GameEntry> Games { get; set; } = new();
     public List<SettingBackup> Backups { get; set; } = new();
+    public List<GameConfigSnapshot> GameConfigSnapshots { get; set; } = new();
+    public List<GameConfigAssignment> GameConfigAssignments { get; set; } = new();
+    public List<GameConfigOriginalBackup> GameConfigOriginalBackups { get; set; } = new();
+    public List<GameConfigSafetyCopy> GameConfigSafetyCopies { get; set; } = new();
     public bool PresetNamesLocalized { get; set; }
     public bool PresetProtectionMigrated { get; set; }
     public string RtssDirectory { get; set; } = "";

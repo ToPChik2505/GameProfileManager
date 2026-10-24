@@ -18,6 +18,16 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private readonly IStateStore _store;
     private readonly SyncService _sync;
     private readonly SyncOperationCoordinator _syncCoordinator;
+    private readonly IGameConfigSnapshotStore _gameConfigStore;
+    private readonly GameConfigSnapshotService _gameConfigSnapshotService;
+    private readonly GameConfigArchiveService _gameConfigArchiveService;
+    private readonly GameConfigTransactionManager _gameConfigTransactions;
+    private readonly GameProcessGuard _gameProcessGuard;
+    private readonly IPcgamingWikiCredentialStore _pcgamingWikiCredentialStore;
+    private readonly IGameConfigDiscovery _gameConfigDiscovery;
+    private readonly SemaphoreSlim _gameConfigReconcileGate = new(1, 1);
+    private int _gameConfigReconcileRequested;
+    private long _gameConfigStateVersion;
     private DiagnosticsProbeSnapshot? _latestDiagnosticsProbe;
     private string _diagnosticsStatus = "Диагностика ещё не запускалась";
     private readonly GameIconLoader _iconLoader;
@@ -175,7 +185,15 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public string Search { get => _search; set { if (Set(ref _search, value)) RefreshGamesView(); } }
     public string StatusFilter { get => _statusFilter; set { if (Set(ref _statusFilter, value)) RefreshGamesView(); } }
     public string[] StatusFilters { get; } = ["Все статусы", "Без профиля", "Нужен .exe", "Ожидает", "Применён", "Перезапустите", "Недоступно", "Ошибка"];
-    public string Notice { get => _notice; set => Set(ref _notice, value); }
+    public string Notice
+    {
+        get => _notice;
+        set
+        {
+            // Notices are UI events: re-emit identical messages so a dismissed InfoBar can be reopened.
+            if (!Set(ref _notice, value)) Changed(nameof(Notice));
+        }
+    }
     public GameEntry? SelectedGame
     {
         get => _selectedGame;
@@ -275,6 +293,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
                 previous != ProfileResolver.ResolveConfiguration(_state, game, displays)).ToArray();
             RefreshDisplays(); UpdateFpsFractions(); UpdateDisplaySummary(); SaveOnly();
             if (autoChanged.Length > 0) _ = ApplyDisplayChangesAsync(autoChanged);
+            _ = ReconcileGameConfigsAsync();
         }
     }
     public bool MinimizeToTray
@@ -415,6 +434,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ICommand AddGameCommand { get; }
     public ICommand ChooseExeCommand { get; }
     public Func<string, string, string?, Task<string?>>? PickLocalFileAsync { get; set; }
+    public Func<string, string, string?, Task<IReadOnlyList<string>>>? PickLocalFilesAsync { get; set; }
     public ICommand ImportSteamCommand { get; }
     public ICommand ImportEpicCommand { get; }
     public ICommand ApplyCommand { get; }
@@ -429,11 +449,25 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public MainViewModel(IStateStore? store = null, SyncService? sync = null)
     {
         _store = store ?? new SqliteStateStore();
+        _pcgamingWikiCredentialStore = new PcgamingWikiCredentialStore();
+        _gameConfigDiscovery = new GameConfigDiscovery(_pcgamingWikiCredentialStore);
         _saveTimer.Tick += (_, _) => SaveOnly(false);
         _sync = sync ?? SyncServiceFactory.Create(_store, () => Volatile.Read(ref _displaySnapshot));
         _syncCoordinator = new SyncOperationCoordinator(_sync);
         // Ошибка чтения должна прервать запуск: пустое состояние нельзя сохранять поверх существующей базы.
         _state = LoadStateOrThrow(_store);
+        _gameConfigStore = new GameConfigSnapshotStore(_store.DirectoryPath);
+        _gameProcessGuard = new GameProcessGuard();
+        _gameConfigSnapshotService = new GameConfigSnapshotService(_gameConfigStore, _gameProcessGuard);
+        _gameConfigArchiveService = new GameConfigArchiveService(_gameConfigStore);
+        _gameConfigTransactions = new GameConfigTransactionManager(_gameConfigStore, _gameProcessGuard);
+        int unfinishedGameConfigTransactions = _gameConfigTransactions.IncompleteTransactions().Count;
+        bool recoveredGameConfigState = _gameConfigTransactions.RecoverIncomplete(_state);
+        if (unfinishedGameConfigTransactions > 0 || recoveredGameConfigState)
+        {
+            try { _store.Save(_state); }
+            catch (Exception ex) { _store.Log(ex); }
+        }
         _iconLoader = new GameIconLoader(DispatcherQueue.GetForCurrentThread(), _store.Log);
         _state.Theme = _state.Theme is "Light" or "Dark" ? _state.Theme : "System";
         ThemeManager.Apply(_state.Theme);
@@ -462,7 +496,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         int obsoleteUtilities = 0;
         foreach (var utility in Games.Where(g => g.SteamAppId is not null && SteamDiscovery.NonGameAppIds.Contains(g.SteamAppId) &&
                      g.ProfileId is null && !g.AutoSwitchProfile && g.DisplayProfileAssignments.Count == 0 &&
-                     !SettingBackupOwnership.HasForGame(_state, g)).ToArray())
+                     !SettingBackupOwnership.HasForGame(_state, g) && !HasGameConfigData(g.Id)).ToArray())
         {
             Games.Remove(utility);
             obsoleteUtilities++;
@@ -538,8 +572,9 @@ public sealed partial class MainViewModel : Observable, IDisposable
                 () => _ = ApplyAllAsync(checkSavedFirst: true));
         _lastRtssProcessState = RtssClient.ProcessIsRunning;
         _rtssTimer.Interval = TimeSpan.FromSeconds(2);
-        _rtssTimer.Tick += (_, _) => { PollRtss(); PollDisplays(); };
+        _rtssTimer.Tick += (_, _) => { PollRtss(); PollDisplays(); PollPendingGameConfigs(); };
         _rtssTimer.Start();
+        _ = ReconcileGameConfigsAsync(forceCheck: true);
         _activityDelayTimer.Tick += (_, _) =>
         {
             _activityDelayTimer.Stop();
@@ -715,6 +750,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
             SaveOnly(false);
             RefreshDisplays();
             UpdateSummary();
+            _ = ReconcileGameConfigsAsync();
         }
     }
 

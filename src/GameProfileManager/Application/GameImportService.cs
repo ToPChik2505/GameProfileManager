@@ -22,7 +22,8 @@ public static class GameImportService
     public static GameImportResult MergeSteam(
         ObservableCollection<GameEntry> games,
         IReadOnlyList<SettingBackup> backups,
-        IReadOnlyList<GameEntry> discovered)
+        IReadOnlyList<GameEntry> discovered,
+        IReadOnlySet<Guid>? protectedGameIds = null)
     {
         ArgumentNullException.ThrowIfNull(games);
         ArgumentNullException.ThrowIfNull(backups);
@@ -34,7 +35,8 @@ public static class GameImportService
                      game.SteamAppId is not null &&
                      SteamDiscovery.NonGameAppIds.Contains(game.SteamAppId) &&
                      game.ProfileId is null &&
-                     !SettingBackupOwnership.HasForGame(backups, game)).ToArray())
+                     !SettingBackupOwnership.HasForGame(backups, game) &&
+                     !(protectedGameIds?.Contains(game.Id) ?? false)).ToArray())
         {
             games.Remove(utility);
             removed++;
@@ -51,7 +53,8 @@ public static class GameImportService
             // к ней могут быть привязаны пользовательские настройки и идентификатор.
             if (manuallyAdded is not null && existing is not null &&
                 existing.ProfileId is null &&
-                !SettingBackupOwnership.HasForGame(backups, existing))
+                !SettingBackupOwnership.HasForGame(backups, existing) &&
+                !(protectedGameIds?.Contains(existing.Id) ?? false))
             {
                 games.Remove(existing);
                 existing = null;

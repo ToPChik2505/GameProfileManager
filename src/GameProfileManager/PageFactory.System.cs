@@ -1,4 +1,5 @@
 using GameProfileManager.Core;
+using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -91,43 +92,103 @@ internal static partial class PageFactory
             ActionButton("Проверить снова", () => vm.DiagnosticsCommand.Execute(null), true));
     }
 
-    private static PageComposition Settings(RouteRequest request)
+    private static PageComposition Settings(RouteRequest request, string activeTab)
     {
         var vm = Vm(request);
+        var pcgamingWikiUsername = new TextBox { Text = vm.PcgamingWikiBotUsername,
+            PlaceholderText = "Имя пользователя@имя бота", MaxLength = 256 };
+        var pcgamingWikiPassword = new PasswordBox { PlaceholderText = "Сгенерированный bot-пароль" };
+        var pcgamingWikiCredentialStatus = Secondary(vm.PcgamingWikiCredentialsLabel);
+        async Task CheckPcgamingWikiAccessAsync()
+        {
+            await vm.TestPcgamingWikiAccessAsync();
+            pcgamingWikiCredentialStatus.Text = vm.PcgamingWikiCredentialsLabel;
+        }
+        void OpenPcgamingWikiBotPasswords()
+        {
+            try { Process.Start(new ProcessStartInfo("https://www.pcgamingwiki.com/wiki/Special:BotPasswords") { UseShellExecute = true }); }
+            catch (Exception ex) { vm.Notice = "Не удалось открыть PCGamingWiki: " + ex.Message; }
+        }
+
         var general = Card(Column(
             Strong("Поведение приложения"),
             Toggle("Проверять и повторно применять при запуске", vm.CheckAtStartup, value => vm.CheckAtStartup = value),
-            Field("Оформление", Choice(vm.ThemeOptions, vm.Theme, value => vm.Theme = value))));
-        var startup = Card(Column(
+            Field("Оформление", Choice(vm.ThemeOptions, vm.Theme, value => vm.Theme = value)),
             Strong("Окно и запуск"),
             Toggle("Сворачивать в трей при закрытии", vm.MinimizeToTray, value => vm.MinimizeToTray = value),
             Toggle("Автозапуск вместе с Windows", vm.AutoStart, value => vm.AutoStart = value),
-            Toggle("Запуск с повышением без повторного UAC", vm.SilentAdminLaunch,
-                value => vm.SilentAdminLaunch = value, () => vm.SilentAdminLaunch)));
-        var integration = Card(Column(
+            Toggle("Запуск с повышением без повторного UAC", vm.SilentAdminLaunch, value => vm.SilentAdminLaunch = value, () => vm.SilentAdminLaunch),
             Strong("Интеграция RTSS"), Secondary(vm.RtssStatus),
             Field("Папка RTSS", Secondary(vm.RtssDirectory)),
             ActionButton("Указать RTSSHooks64.dll", () => vm.BrowseRtssCommand.Execute(null)),
-            Field("Общий режим лимитера", Choice(vm.RtssLimiterModes, vm.RtssLimiterMode,
-                value => vm.RtssLimiterMode = value))));
-        return Shell("Настройки", "Параметры приложения и интеграций",
-            ResponsiveCards(general, startup, integration),
-            Buttons(ActionButton("Контроллер SDL3", () => request.Owner.Navigate("settings-controller")),
-                ActionButton("Резервные копии и обновления", () => request.Owner.Navigate("settings-backup"))));
+            Field("Общий режим лимитера", Choice(vm.RtssLimiterModes, vm.RtssLimiterMode, value => vm.RtssLimiterMode = value))));
+
+        var pcgamingWiki = Card(Column(Strong("Точный поиск PCGamingWiki"),
+            Secondary("Точный поиск читает таблицу GameData через Cargo API. Без bot-пароля остаётся разбор статьи, который может пропустить пути."),
+            Strong("Как получить bot-пароль"),
+            Secondary("1. Войдите на PCGamingWiki. 2. Откройте Special:BotPasswords и создайте бота. 3. Разрешите Create, query and delete data through the Cargo extension. 4. Скопируйте bot-имя и сгенерированный пароль сюда. Основной пароль аккаунта не используйте."),
+            ActionButton("Открыть страницу создания bot-пароля", OpenPcgamingWikiBotPasswords),
+            Field("Bot-имя пользователя", pcgamingWikiUsername), Field("Bot-пароль", pcgamingWikiPassword),
+            pcgamingWikiCredentialStatus,
+            Buttons(
+                ActionButton("Сохранить", () =>
+                {
+                    try
+                    {
+                        vm.SavePcgamingWikiCredentials(pcgamingWikiUsername.Text, pcgamingWikiPassword.Password);
+                        pcgamingWikiPassword.Password = "";
+                        pcgamingWikiCredentialStatus.Text = vm.PcgamingWikiCredentialsLabel;
+                    }
+                    catch (Exception ex) { vm.Notice = "Bot-пароль не сохранён: " + ex.Message; }
+                }, true),
+                ActionButton("Проверить доступ", () => _ = CheckPcgamingWikiAccessAsync()),
+                ActionButton("Удалить сохранённый пароль", () =>
+                {
+                    try
+                    {
+                        vm.DeletePcgamingWikiCredentials();
+                        pcgamingWikiPassword.Password = "";
+                        pcgamingWikiCredentialStatus.Text = vm.PcgamingWikiCredentialsLabel;
+                    }
+                    catch (Exception ex) { vm.Notice = "Bot-пароль не удалён: " + ex.Message; }
+                }, enabled: vm.PcgamingWikiCredentialsConfigured, destructive: true))));
+
+        var tabItems = new (string Id, string Label, string Route)[]
+        {
+            ("general", "Общие", "settings"),
+            ("gamepad", "Геймпад", "settings-controller"),
+            ("backups", "Резервные копии и обновления", "settings-backup"),
+            ("pcgamingwiki", "Точный поиск PCGamingWiki", "settings-pcgamingwiki")
+        };
+        var tabStrip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        foreach (var tab in tabItems)
+            tabStrip.Children.Add(ActionButton(tab.Label, () => request.Owner.Navigate(tab.Route), tab.Id == activeTab));
+        var tabScroller = new ScrollViewer { Content = tabStrip,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Disabled };
+        UIElement content = activeTab switch
+        {
+            "gamepad" => ControllerSettingsContent(request),
+            "backups" => BackupSettingsContent(request),
+            "pcgamingwiki" => pcgamingWiki,
+            _ => general
+        };
+        var page = Shell("Настройки", "", tabScroller, content);
+        if (page.Content is ScrollViewer { Content: StackPanel layout }) layout.Spacing = 12;
+        return page;
     }
 
-    private static PageComposition ControllerSettings(RouteRequest request)
+    private static UIElement ControllerSettingsContent(RouteRequest request)
     {
         var status = Secondary("");
         var buttons = Secondary("");
         var sections = Secondary("");
         var tray = Secondary("");
-        var page = Shell("Контроллер SDL3", "Подключение и навигация геймпадом",
-            Card(Column(Strong("Состояние"), status,
+        var content = Column(
+            Card(Column(Strong("Подключение"), status,
                 Secondary("Подключение и отключение контроллера отслеживаются во время работы приложения."))),
             Card(Column(Strong("Управление"), Secondary("Крестовина / левый стик — перемещение фокуса"),
-                buttons, Secondary("В раскрытом списке крестовина меняет выбор; назад закрывает список."),
-                sections, tray)));
+                buttons, Secondary("В раскрытом списке крестовина меняет выбор; кнопка назад закрывает список."), sections, tray)));
         void Refresh()
         {
             status.Text = request.Owner.ControllerStatus;
@@ -142,22 +203,31 @@ internal static partial class PageFactory
                 : "Start + View — вернуть окно из трея";
         }
         request.Owner.ControllerStatusChanged += Refresh;
-        if (page.Content is FrameworkElement root)
-            root.Unloaded += (_, _) => request.Owner.ControllerStatusChanged -= Refresh;
+        if (content is FrameworkElement root) root.Unloaded += (_, _) => request.Owner.ControllerStatusChanged -= Refresh;
         Refresh();
-        return page;
+        return content;
     }
 
-    private static PageComposition BackupSettings(RouteRequest request)
+    private static UIElement BackupSettingsContent(RouteRequest request)
     {
         var vm = Vm(request);
-        return Shell("Резервные копии и обновления", "Сохранность пользовательских данных",
-            ResponsivePair(
-                Card(Column(Strong("Резервная копия"),
-                    Secondary("Данные хранятся в " + vm.DataDirectory),
-                    ActionButton("Экспортировать JSON", () => vm.BackupCommand.Execute(null), true))),
-                Card(Column(Strong("Обновления"),
-                    Secondary("Проверка выполняется только по нажатию."),
-                    ActionButton("Проверить обновления", () => _ = request.Owner.CheckUpdatesAsync())))));
+        return Column(
+            Card(Column(Strong("Резервная копия настроек GPM"), Secondary("Данные хранятся в " + vm.DataDirectory),
+                ActionButton("Экспортировать JSON", () => vm.BackupCommand.Execute(null), true))),
+            Card(Column(Strong("Архив графических конфигураций"),
+                Secondary("ZIP включает снимки, исходные и защитные копии с проверкой SHA-256. Импорт не меняет файлы игры."),
+                Buttons(
+                    ActionButton("Экспортировать ZIP", () => _ = vm.ExportGameConfigArchiveAsync(), true),
+                    ActionButton("Импортировать ZIP", async () =>
+                    {
+                        if (vm.PickLocalFileAsync is null) return;
+                        string? path = await vm.PickLocalFileAsync("Выберите архив графических конфигураций", "*.zip", vm.DataDirectory);
+                        if (path is null) return;
+                        if (await Confirm(request.Owner, "Импортировать графические конфигурации",
+                            "Метаданные и защитные копии будут объединены с текущей библиотекой. Файлы игры и реестр не изменятся.", "Проверить и импортировать"))
+                            await vm.ImportGameConfigArchiveAsync(path);
+                    })))),
+            Card(Column(Strong("Обновления"), Secondary("Проверка выполняется по нажатию."),
+                ActionButton("Проверить обновления", () => _ = request.Owner.CheckUpdatesAsync()))));
     }
 }
