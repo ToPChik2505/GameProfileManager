@@ -30,6 +30,8 @@ public sealed partial class MainWindow : Window
     private bool _exitRequested;
     private bool _leaveApproved;
     private bool _closeGuardPending;
+    private bool _navigationPending;
+    private bool _syncingSelection;
     private bool _controllerMode;
     private bool _controllerConnected;
     private bool _playStationController;
@@ -138,10 +140,12 @@ public sealed partial class MainWindow : Window
         _closeGuardPending = true;
         try
         {
+            if (_navigationPending) return;
             if (!await page.CanLeaveAsync()) return;
             _leaveApproved = true;
             Close();
         }
+        catch (Exception ex) { _viewModel.Notice = "Ошибка закрытия: " + ex.Message; }
         finally { _closeGuardPending = false; }
     }
 
@@ -194,6 +198,7 @@ public sealed partial class MainWindow : Window
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
+        if (_syncingSelection) return;
         if (args.IsSettingsSelected) Navigate("settings");
         else if (args.SelectedItemContainer?.Tag is string route) Navigate(route);
     }
@@ -202,31 +207,73 @@ public sealed partial class MainWindow : Window
 
     public async void Navigate(string route, Guid? itemId = null)
     {
+        try { await NavigateAsync(route, itemId); }
+        catch (Exception ex) { _viewModel.Notice = "Ошибка навигации: " + ex.Message; RestoreNavigationSelection(); }
+    }
+
+    public async Task NavigateAsync(string route, Guid? itemId = null)
+    {
         if (string.IsNullOrWhiteSpace(route)) return;
-        if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync()) return;
-        _route = route;
-        ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, route, itemId));
+        if (_navigationPending || _closeGuardPending) { RestoreNavigationSelection(); return; }
+        _navigationPending = true;
+        try
+        {
+            if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync())
+            { RestoreNavigationSelection(); return; }
+            if (!ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, route, itemId)))
+                throw new InvalidOperationException("Не удалось открыть страницу.");
+            RestoreNavigationSelection();
+        }
+        finally { _navigationPending = false; }
     }
 
     public async void GoBack()
     {
+        try { await GoBackAsync(); }
+        catch (Exception ex) { _viewModel.Notice = "Ошибка возврата: " + ex.Message; RestoreNavigationSelection(); }
+    }
+
+    public async Task GoBackAsync()
+    {
         if (TryCloseOpenComboBox()) return;
         if (!IsInternalRoute(_route)) return;
-        if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync()) return;
-        if (ContentFrame.CanGoBack) ContentFrame.GoBack();
-        else
+        if (_navigationPending || _closeGuardPending) { RestoreNavigationSelection(); return; }
+        _navigationPending = true;
+        try
         {
-            string parent = _route switch
+            if (ContentFrame.Content is RoutePage current && !await current.CanLeaveAsync())
+            { RestoreNavigationSelection(); return; }
+            if (ContentFrame.CanGoBack) ContentFrame.GoBack();
+            else
             {
-                "import" or "game" => "games",
-                "profile-new" or "profile-edit" => "profiles",
-                "settings-controller" or "settings-backup" => "settings",
-                _ when _route.StartsWith("game-", StringComparison.Ordinal) => "game",
-                _ => "overview"
-            };
-            ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, parent,
-                parent == "game" ? _viewModel.SelectedGame?.Id : null));
+                string parent = _route switch
+                {
+                    "import" or "game" => "games",
+                    "profile-new" or "profile-edit" => "profiles",
+                    "settings-controller" or "settings-backup" => "settings",
+                    _ when _route.StartsWith("game-", StringComparison.Ordinal) => "game",
+                    _ => "overview"
+                };
+                if (!ContentFrame.Navigate(typeof(RoutePage), new RouteRequest(this, parent,
+                    parent == "game" ? _viewModel.SelectedGame?.Id : null)))
+                    throw new InvalidOperationException("Не удалось вернуться на страницу.");
+            }
+            RestoreNavigationSelection();
         }
+        finally { _navigationPending = false; }
+    }
+
+    private void RestoreNavigationSelection()
+    {
+        _syncingSelection = true;
+        try
+        {
+            NavView.SelectedItem = _route == "settings" || _route.StartsWith("settings-", StringComparison.Ordinal)
+                ? NavView.SettingsItem
+                : NavView.MenuItems.OfType<NavigationViewItem>()
+                    .FirstOrDefault(item => Equals(item.Tag, _route));
+        }
+        finally { _syncingSelection = false; }
     }
 
     private bool TryCloseOpenComboBox()

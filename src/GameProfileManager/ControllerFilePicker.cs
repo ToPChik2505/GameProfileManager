@@ -17,6 +17,10 @@ internal sealed class ControllerFilePicker
     private readonly ListView _list = new() { MinHeight = 240, MaxHeight = 430, SelectionMode = ListViewSelectionMode.Single };
     private readonly TextBlock _location = new() { TextWrapping = TextWrapping.Wrap };
     private readonly InfoBar _error = new() { IsOpen = false, Severity = InfoBarSeverity.Warning, IsClosable = false };
+    private readonly Button _upButton;
+    private CancellationTokenSource? _loadCancellation;
+    private int _loadGeneration;
+    private bool _closed;
     private string? _directory;
     private string? _result;
 
@@ -35,7 +39,9 @@ internal sealed class ControllerFilePicker
         var layout = new StackPanel { Spacing = 10, MinWidth = 300 };
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         toolbar.Children.Add(Button("Диски", () => _ = LoadAsync(null)));
-        toolbar.Children.Add(Button("Вверх", () => _ = LoadAsync(Directory.GetParent(_directory ?? "")?.FullName)));
+        _upButton = Button("Вверх", GoUp);
+        _upButton.IsEnabled = _directory is not null;
+        toolbar.Children.Add(_upButton);
         layout.Children.Add(toolbar);
         layout.Children.Add(_location);
         var pathInput = new TextBox { PlaceholderText = "Путь к файлу или папке" };
@@ -52,6 +58,11 @@ internal sealed class ControllerFilePicker
         _list.DoubleTapped += (_, _) => OpenSelected();
         layout.Children.Add(Button("Открыть выбранное", OpenSelected));
         _dialog.Content = new ScrollViewer { Content = layout, MaxHeight = 560 };
+        _dialog.Closed += (_, _) =>
+        {
+            _closed = true;
+            _loadCancellation?.Cancel();
+        };
     }
 
     public async Task<string?> ShowAsync()
@@ -78,6 +89,11 @@ internal sealed class ControllerFilePicker
 
     private async Task LoadAsync(string? directory)
     {
+        if (_closed) return;
+        int generation = ++_loadGeneration;
+        _loadCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _loadCancellation = cancellation;
         try
         {
             Entry[] entries = await Task.Run(() => directory is null
@@ -87,15 +103,42 @@ internal sealed class ControllerFilePicker
                     .Select(path => new Entry(path, true, "📁 " + Path.GetFileName(path)))
                     .Concat(Directory.EnumerateFiles(directory, _pattern)
                         .Select(path => new Entry(path, false, Path.GetFileName(path))))
-                    .OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Label).ToArray());
+                    .OrderByDescending(item => item.IsDirectory).ThenBy(item => item.Label).ToArray(), cancellation.Token);
+            if (_closed || generation != _loadGeneration || cancellation.IsCancellationRequested) return;
             _directory = directory;
             _location.Text = directory ?? "Диски";
+            _upButton.IsEnabled = directory is not null;
             _list.ItemsSource = entries;
             _list.SelectedIndex = entries.Length > 0 ? 0 : -1;
             _error.IsOpen = false;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        { ShowError("Не удалось открыть папку: " + ex.Message); }
+        {
+            if (!_closed && generation == _loadGeneration)
+                ShowError("Не удалось открыть папку: " + ex.Message);
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            if (ReferenceEquals(_loadCancellation, cancellation)) _loadCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private void GoUp()
+    {
+        if (_directory is null) return;
+        try
+        {
+            if (!Directory.Exists(_directory))
+            {
+                ShowError("Текущая папка больше не доступна.");
+                return;
+            }
+            _ = LoadAsync(Directory.GetParent(_directory)?.FullName);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        { ShowError("Не удалось открыть родительскую папку: " + ex.Message); }
     }
 
     private void OpenSelected()

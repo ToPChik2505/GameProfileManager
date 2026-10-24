@@ -38,6 +38,8 @@ public sealed class RtssClient : IRtssSettings
         InstallDirectory = string.IsNullOrWhiteSpace(preferredDirectory) ? DetectDirectory() ?? "" : preferredDirectory;
         string library = Path.Combine(InstallDirectory, "RTSSHooks64.dll");
         if (!File.Exists(library)) throw new FileNotFoundException("RTSSHooks64.dll не найден. Укажите папку RTSS в настройках.", library);
+        library = ProtectedInstallPath.Validate(library);
+        InstallDirectory = Path.GetDirectoryName(library)!;
         _library = NativeLibrary.Load(library);
         try
         {

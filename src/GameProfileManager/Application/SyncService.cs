@@ -217,18 +217,10 @@ public sealed class SyncService
         var fps = ResolveFps(state, game, profile, displays, resolution);
         if (fps.Fps is not int targetFps)
         {
-            if (state.Backups.Any(backup => backup.ManagedGameId == game.Id))
-            {
-                Restore(state, game);
-                if (game.Status is ApplyStatus.Error or ApplyStatus.Unsupported)
-                    game.Detail = fps.Detail + "; восстановление: " + game.Detail;
-                else
-                {
-                    game.Status = ApplyStatus.Unsupported;
-                    game.Detail = fps.Detail + "; исходные значения восстановлены";
-                }
-            }
-            else { game.Status = ApplyStatus.Unsupported; game.Detail = fps.Detail; }
+            // A selected profile still owns its captured originals. A transient display failure
+            // is not a request to restore them or to touch either external provider.
+            game.Status = ApplyStatus.Unsupported;
+            game.Detail = fps.Detail + "; текущие внешние настройки оставлены без изменений";
             return;
         }
         var limiterMode = RtssLimiterModeResolver.Resolve(state, profile);

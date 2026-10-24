@@ -9,6 +9,14 @@ string temp = Path.Combine(Path.GetTempPath(), "gpm-tests-" + Guid.NewGuid().ToS
 try
 {
     Directory.CreateDirectory(temp);
+    string untrustedRtss = Path.Combine(temp, "untrusted-rtss");
+    Directory.CreateDirectory(untrustedRtss);
+    File.WriteAllBytes(Path.Combine(untrustedRtss, "RTSSHooks64.dll"), [0, 1, 2, 3]);
+    bool rejectedUntrustedDll = false;
+    try { using var ignored = new RtssClient(untrustedRtss); }
+    catch (UnauthorizedAccessException) { rejectedUntrustedDll = true; }
+    Assert(rejectedUntrustedDll, "a user-writable fake RTSS DLL is rejected before native loading");
+    Console.WriteLine("PASS untrusted RTSS DLL path rejected without loading it");
     var controls = new ControllerActionMapper();
     static ControllerSnapshot Press(params ControllerButton[] buttons) =>
         new(buttons.Aggregate(0UL, (mask, button) => mask | 1UL << (int)button));
@@ -453,23 +461,40 @@ try
     Assert(ratioRtss.Fps == 48 && ratioState.Backups.Single().RtssFps == 45,
         "changed refresh recalculates FPS without replacing the original backup");
     currentDisplays = [displayA with { RefreshNumerator = 119880 }];
+    int unavailableRtssWrites = ratioRtss.WriteCalls;
+    int unavailableRtssRestores = ratioRtss.RestoreCalls;
+    int unavailableNvidiaWrites = ratioNv.ApplyCalls;
+    int unavailableNvidiaRestores = ratioNv.RestoreCalls;
     ratioSync.ApplyOne(ratioState, ratioGame);
-    Assert(ratioGame.Status == ApplyStatus.Unsupported && ratioRtss.Fps == 45 &&
-           !ratioNv.ProfileExists && ratioState.Backups.Count == 0 &&
-           ratioGame.Detail.Contains("исходные значения восстановлены"),
-        "noninteger refresh restores the original RTSS and NVIDIA values");
+    Assert(ratioGame.Status == ApplyStatus.Unsupported && ratioRtss.Fps == 48 &&
+           ratioRtss.WriteCalls == unavailableRtssWrites && ratioRtss.RestoreCalls == unavailableRtssRestores &&
+           ratioNv.ApplyCalls == unavailableNvidiaWrites && ratioNv.RestoreCalls == unavailableNvidiaRestores &&
+           ratioState.Backups.Single().RtssFps == 45 &&
+           ratioGame.Detail.Contains("оставлены без изменений"),
+        "noninteger refresh preserves both external values and the original backup");
     int ratioWrites = ratioRtss.WriteCalls;
     int nvidiaWrites = ratioNv.ApplyCalls;
     ratioSync.ApplyOne(ratioState, ratioGame);
     Assert(ratioGame.Status == ApplyStatus.Unsupported && ratioRtss.WriteCalls == ratioWrites &&
-           ratioNv.ApplyCalls == nvidiaWrites && ratioState.Backups.Count == 0,
+           ratioNv.ApplyCalls == nvidiaWrites && ratioState.Backups.Count == 1 &&
+           ratioRtss.RestoreCalls == unavailableRtssRestores && ratioNv.RestoreCalls == unavailableNvidiaRestores,
         "noninteger division blocks both integrations before any write");
     currentDisplays = [];
     ratioSync.ApplyOne(ratioState, ratioGame);
     Assert(ratioGame.Status == ApplyStatus.Unsupported && ratioRtss.WriteCalls == ratioWrites &&
-           ratioNv.ApplyCalls == nvidiaWrites && ratioState.Backups.Count == 0,
+           ratioNv.ApplyCalls == nvidiaWrites && ratioState.Backups.Count == 1 &&
+           ratioRtss.RestoreCalls == unavailableRtssRestores && ratioNv.RestoreCalls == unavailableNvidiaRestores,
         "missing display blocks both integrations before any write");
-    Console.WriteLine("PASS display ratios, G-SYNC, per-game overrides and restore");
+    currentDisplays = [displayA with { DynamicRefresh = true }];
+    ratioSync.ApplyOne(ratioState, ratioGame);
+    Assert(ratioGame.Status == ApplyStatus.Unsupported && ratioRtss.WriteCalls == ratioWrites &&
+           ratioNv.ApplyCalls == nvidiaWrites && ratioState.Backups.Count == 1 &&
+           ratioRtss.RestoreCalls == unavailableRtssRestores && ratioNv.RestoreCalls == unavailableNvidiaRestores,
+        "dynamic refresh preserves both providers and original backup");
+    ratioSync.Restore(ratioState, ratioGame);
+    Assert(ratioRtss.Fps == 45 && !ratioNv.ProfileExists && ratioState.Backups.Count == 0,
+        "an explicit restore still returns original values after an unavailable display");
+    Console.WriteLine("PASS display ratios, G-SYNC, unavailable no-op and explicit restore");
     var selectedProfile = new PerformanceProfile { Name = "Test", FpsLimit = 73 };
     AppState SelectionState()
     {

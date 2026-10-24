@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using GameProfileManager.Integrations;
 
 namespace GameProfileManager;
 
@@ -23,25 +24,29 @@ internal static class ElevatedLaunchTask
 
     public static bool TryRun(bool autoStart = false)
     {
+        // The task never accepts caller-supplied arguments. Autostart uses the normal UAC path.
+        if (autoStart) return false;
         if (Environment.ProcessPath is not { } exe || !IsProtectedInstall(exe)) return false;
         try
         {
             return WithTask(task =>
             {
-                if (!IsOwnTask(task) || autoStart && !SupportsArguments(task)) return false;
-                task.Run(autoStart ? "--autostart" : "");
+                if (!IsOwnTask(task)) return false;
+                task.Run("");
                 return true;
             });
         }
         catch (Exception) { return false; }
     }
 
-    // Старые установки задачи не передают аргументы. Обновляем только свою проверенную задачу.
+    // Старые задачи с $(Arg0) принимали произвольный аргумент от запускающего их пользователя.
+    // Заменяем лишь задачу, которая в остальном совпадает с нашим защищённым EXE.
     public static void UpgradeIfNeeded()
     {
         try
         {
-            if (WithTask(task => IsOwnTask(task) && !SupportsArguments(task))) Install();
+            if (WithTask(task => TaskMismatch(task, allowLegacyArguments: true) is null && SupportsArguments(task)))
+                Install();
         }
         catch (Exception) { }
     }
@@ -68,7 +73,7 @@ internal static class ElevatedLaunchTask
         definition.Settings.MultipleInstances = 2; // TASK_INSTANCES_IGNORE_NEW
         dynamic action = definition.Actions.Create(0); // TASK_ACTION_EXEC
         action.Path = exe;
-        action.Arguments = "$(Arg0)";
+        action.Arguments = "";
         action.WorkingDirectory = Path.GetDirectoryName(exe)!;
         folder.RegisterTaskDefinition(TaskName, definition, 6, null, null, 3, null); // CREATE_OR_UPDATE
         dynamic registeredTask;
@@ -104,7 +109,7 @@ internal static class ElevatedLaunchTask
     private static bool SupportsArguments(dynamic task) =>
         string.Equals((string?)task.Definition.Actions.Item(1).Arguments, "$(Arg0)", StringComparison.Ordinal);
 
-    private static string? TaskMismatch(dynamic task)
+    private static string? TaskMismatch(dynamic task, bool allowLegacyArguments = false)
     {
         string? exe = Environment.ProcessPath;
         if (exe is null || !IsProtectedInstall(exe)) return "приложение запущено вне защищённой папки установки";
@@ -114,7 +119,8 @@ internal static class ElevatedLaunchTask
         dynamic action = definition.Actions.Item(1);
         if (action.Type != 0) return "действие не является запуском EXE";
         string? arguments = (string?)action.Arguments;
-        if (!string.IsNullOrEmpty(arguments) && arguments != "$(Arg0)") return "у действия появились неизвестные аргументы";
+        if (!string.IsNullOrEmpty(arguments) && !(allowLegacyArguments && arguments == "$(Arg0)"))
+            return "у действия появились неизвестные аргументы";
         if (!string.Equals(Path.GetFullPath((string)action.Path), Path.GetFullPath(exe), StringComparison.OrdinalIgnoreCase))
             return "путь к EXE отличается от установленного приложения";
         if (!string.Equals(Path.TrimEndingDirectorySeparator(Path.GetFullPath((string)action.WorkingDirectory)),
@@ -141,13 +147,8 @@ internal static class ElevatedLaunchTask
 
     private static bool IsProtectedInstall(string exe)
     {
-        // Действие не должно указывать на доступную пользователю папку загрузок или проекта.
-        string full = Path.GetFullPath(exe);
-        return new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                       Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) }
-            .Where(root => !string.IsNullOrWhiteSpace(root))
-            .Any(root => full.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar,
-                StringComparison.OrdinalIgnoreCase));
+        try { ProtectedInstallPath.Validate(exe); return true; }
+        catch (Exception) { return false; }
     }
 
     private static dynamic NewService() => Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service")
