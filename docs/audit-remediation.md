@@ -1,0 +1,40 @@
+# Audit remediation — work in progress
+
+Baseline: local and remote `main` at `a840ab7baf857cb487cc7f70977a2118c038965b` (23 October 2026; `git ls-remote origin refs/heads/main` verified on 24 October), .NET SDK `10.0.100`. Working branch: `fix/audit-winui3-2026-10`. The supplied audit was made against `060d04f`; each item below is being checked against the newer tree. This is an interim report, not a claim that the 18-item specification is complete.
+
+## Security boundary and remaining risk
+
+The current manifest/UI startup path still elevates the whole WinUI process. `App.OnLaunched` may start the installed EXE through a highest-privilege Scheduled Task or UAC. `SyncService` constructs `RtssClient` from the database's `RtssDirectory`; the RTSS native DLL and per-game profile files are then accessed in that directory. NVIDIA DRS is reached through the existing NVIDIA client. Database content and a manually chosen RTSS path are user-controlled; `Program Files` and a machine-installed RTSS directory can only be trusted if the file, each parent directory, owner, and ACL resist standard-user replacement. The new validator rejects user-writable locations and reparse points and confirms the opened file's final path before `NativeLibrary.Load`. A legacy task that allowed caller-supplied `$(Arg0)` is replaced at elevated startup only when its other properties match this protected installation. The main process is still elevated, so a future worker must own the narrow RTSS/DRS operations and authenticate callers before the UI can run asInvoker. No change to the manifest or launch privilege was made yet.
+
+| ID | Before / evidence in baseline | Change or next action | Check | Status / limitation |
+| --- | --- | --- | --- | --- |
+| SEC-01 | `App.OnLaunched` elevates the whole UI; `RtssClient` loaded a DLL from the saved directory. | Added protected-path validation before native loading. A separate least-privilege worker and authenticated IPC remain to be designed and implemented. | Fake DLL in a user-writable directory is rejected before loading; Release build. | **Open P0.** Current UI still runs elevated; no real RTSS validation. |
+| PRIV-01 | `ElevatedLaunchTask.IsProtectedInstall` used a lexical `Program Files` prefix; the task accepted `$(Arg0)` from its caller. | Reused protected-path validation for the task EXE, removed caller-supplied arguments, and added migration of verified legacy tasks. | Release build; synthetic untrusted-path check for shared validator. | In progress; protected real install and task migration still need Windows verification. |
+| INPUT-01 | Picker called `Directory.GetParent("")` on the Drives screen. | Disabled Up at Drives; guarded unavailable directories and parent lookup. | Release build. | In progress; interactive picker regression check still needed. |
+| NAV-01 | Repeated `async void` navigation could open multiple leave dialogs. | Added Task-returning navigation/back methods, a transition guard, selection restoration, and exception handling in event wrappers. | Release build. | In progress; interactive double-navigation and focus check still needed. |
+| CORE-01 | Unavailable fraction FPS called `Restore` when a backup existed. | Unavailable FPS now records `Unsupported` and leaves providers and backup untouched; explicit Restore remains available. | Isolated fake RTSS/NVIDIA checks cover noninteger, missing, and dynamic refresh, backup preservation, and explicit restore. | **Fixed in code and unit checks.** Hardware readback remains unverified. |
+| UX-01 | `ShellTrayIcon` still enforces 960×560 effective pixels. | Adaptive layout and Snap matrix remain. | Not run. | Open. |
+| CI-01 | Installer workflow did not run tests. | Added a `build-and-test` dependency before installer publication, PR trigger, Release x64 build, fake-client/SQLite checks, resource checks, and analyzers. | Workflow inspected locally; hosted run not yet available. | In progress until GitHub Actions confirms it. |
+| INPUT-02 | `ControllerAction.Menu` still has no main dispatch branch. | Define overlay-safe pane behavior. | Not run. | Open. |
+| UI-03 | Picker applied whichever `LoadAsync` finished last. | Added cancellation and a monotonically increasing generation; closing cancels pending load. | Release build. | In progress; slow-I/O UI check remains. |
+| START-01 | Startup maximizes the window unconditionally. | Persist and restore normal bounds after Snap/DPI design. | Not run. | Open. |
+| INPUT-03 | SDL and display timers are still present. | Measure CPU, handles, and latency in foreground and tray before changing polling. | No baseline yet. | Open; requires repeatable Windows measurements. |
+| UI-01 | `RoutePage` rebuilds content at each transition. | Measure navigation latency and allocations before changing lifecycle. | No baseline yet. | Open. |
+| UI-02 | Game row has fixed secondary columns. | Adapt compact/narrow layout with UX-01. | No visual matrix yet. | Open. |
+| I/O-01 | `SaveOnly` still writes SQLite synchronously. | Profile latency and design ordered snapshot writer with durable flush. | No baseline yet. | Open. |
+| MEM-01 | Steam appinfo is read fully and searched linearly. | Measure representative import, then index if beneficial. | No baseline yet. | Open. |
+| IO-02 | Icon files are cached under TEMP without disk cleanup. | Measure usage, then add bounded app-local cache. | No baseline yet. | Open. |
+| MAINT-01 | WPF comments and large MainWindow remain. | Split responsibilities after navigation behavior is verified. | Not run. | Open. |
+| PKG-01 | Publish is self-contained without trimming. | Measure publish size/startup; preserve compatibility unless evidence supports a change. | No baseline yet. | Open. |
+
+## Checks run so far
+
+- `dotnet --version` → `10.0.100`.
+- `git ls-remote origin refs/heads/main` → `a840ab7baf857cb487cc7f70977a2118c038965b`.
+- `dotnet build .\src\GameProfileManager\GameProfileManager.csproj -c Release --no-restore -o .\artifacts\audit-build -m:1 -nr:false -v:q` → succeeded after an offline restore; one nullable warning was subsequently removed.
+- `dotnet build .\src\GameProfileManager.Engine\GameProfileManager.Engine.csproj -c Release --no-restore -m:1 -nr:false -v:q` → succeeded with zero warnings and errors.
+- `dotnet build .\tests\GameProfileManager.Tests\GameProfileManager.Tests.csproj -c Release --no-restore -m:1 -nr:false -p:BuildProjectReferences=false -v:q` → succeeded with zero warnings and errors after building dependencies.
+- `dotnet run --project .\tests\GameProfileManager.Tests\GameProfileManager.Tests.csproj -c Release --no-build` → passed the fake DLL rejection, unavailable FPS, explicit restore, rollback, SQLite, and other existing checks.
+- Initial ordinary restore failed with `NU1301` because `api.nuget.org` was unavailable. Restoring from the local package cache succeeded.
+
+No real RTSS/NVIDIA write test, UI smoke, installer build, DPI/Snap test, or hardware measurement has been performed. The user database was not opened or modified by these checks. The logo specification is a separate task and is outside this branch.

@@ -95,6 +95,8 @@ The installer is self-contained; installing the .NET runtime or Windows App SDK 
 
 A profile can use a **manual FPS limit (1–1000)** or a **fraction of the display refresh rate (1/1 through 1/12)**. Fractional mode is available only when a supported integer FPS limit can be determined. Windows dynamic refresh rate prevents fraction-based calculation.
 
+If the selected profile's FPS cannot be calculated because the display is unavailable, uses dynamic refresh, or cannot produce an integer limit, **Apply leaves RTSS/NVIDIA settings and the captured backup unchanged**. Use **Restore original settings** explicitly to return to the saved values.
+
 Other settings include the NVIDIA per-game refresh technology (G-SYNC allowed or fixed refresh), V-Sync, and an RTSS limiter mode. Game Profile Manager uses RTSS as its FPS limiter and sets the managed NVIDIA frame-rate limiter to disabled (`FRL_FPS = 0`) while applying a profile.
 
 ### Assignment modes
@@ -153,7 +155,7 @@ The interface follows Windows display scaling (Per-Monitor V2 DPI) and the syste
 - **Exported backups:** JSON files saved in the same application data directory.
 - **Compatibility:** Version 2.0 preserves data from version 1.x. An unreadable database is not silently overwritten with a new empty state.
 
-An optional **elevated launch without repeated UAC** feature uses a Windows Task Scheduler task. Configuring it requires an administrative launch and installation under `Program Files`.
+An optional **elevated launch without repeated UAC** feature uses a Windows Task Scheduler task. Configuring it requires an administrative launch and an installation under `Program Files` whose EXE path, owner, and ACL pass the protected-path check. The task accepts no caller-supplied arguments; autostart may still prompt for UAC. RTSS DLL loading likewise requires a protected `Program Files` installation. A user-writable RTSS folder is rejected before native loading, including when selected manually in Settings.
 
 ## Limitations
 
@@ -240,7 +242,7 @@ Core, application, infrastructure, and integration source files are linked into 
 
 ### Releases
 
-The [Windows installer workflow](.github/workflows/installer.yml) builds on pushes to `main` and `v*` tags. To publish a version, update `<Version>` in `src/GameProfileManager/GameProfileManager.csproj`, push the commit, then push a matching version tag (for example, `v2.0.0`). The workflow publishes the installer to GitHub Releases.
+The [Windows installer workflow](.github/workflows/installer.yml) checks Release x64 compilation, isolated fake-client/SQLite tests, and WinUI resources on pull requests, `main`, and `v*` tags. The installer job runs only after these checks pass; UI smoke still requires a separate interactive Windows desktop. To publish a version, update `<Version>` in `src/GameProfileManager/GameProfileManager.csproj`, push the commit, then push a matching version tag (for example, `v2.0.0`). The workflow publishes the installer to GitHub Releases.
 
 ## Contributing and support
 
