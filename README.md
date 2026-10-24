@@ -1,8 +1,23 @@
-# GameProfileManager
+<p align="center">
+  <img src="src/GameProfileManager/Assets/GpmBranding/PNG/gpm_dark_256.png" alt="GPM icon" width="96" height="96">
+</p>
 
-Windows 11 app for per-game performance profiles and display-specific graphics configuration snapshots.
+<h1 align="center">GPM — Game Profile Manager</h1>
 
-[Download the latest release](https://github.com/Vladislav2505/GameProfileManager/releases) · [Report an issue](https://github.com/Vladislav2505/GameProfileManager/issues) · [Русская версия](README.ru.md)
+<p align="center">Per-game performance profiles and display-aware graphics configuration snapshots for Windows 11.</p>
+
+<p align="center">
+  <a href="README.md"><strong>English</strong></a> · <a href="README.ru.md">Русский</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ToPChik2505/GameProfileManager/releases">Download</a> ·
+  <a href="https://github.com/ToPChik2505/GameProfileManager/issues">Issues</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ToPChik2505/GameProfileManager/actions/workflows/installer.yml"><img src="https://github.com/ToPChik2505/GameProfileManager/actions/workflows/installer.yml/badge.svg" alt="Windows build"></a>
+</p>
 
 ## Features
 

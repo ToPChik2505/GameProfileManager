@@ -1,8 +1,23 @@
-# GameProfileManager
+<p align="center">
+  <img src="src/GameProfileManager/Assets/GpmBranding/PNG/gpm_dark_256.png" alt="Иконка GPM" width="96" height="96">
+</p>
 
-Приложение для Windows 11: игровые профили производительности и снимки графических настроек для разных дисплеев.
+<h1 align="center">GPM — Game Profile Manager</h1>
 
-[Скачать последнюю версию](https://github.com/Vladislav2505/GameProfileManager/releases) · [Сообщить об ошибке](https://github.com/Vladislav2505/GameProfileManager/issues) · [English](README.md)
+<p align="center">Профили производительности игр и снимки графических настроек для разных дисплеев в Windows 11.</p>
+
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.ru.md"><strong>Русский</strong></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ToPChik2505/GameProfileManager/releases">Скачать</a> ·
+  <a href="https://github.com/ToPChik2505/GameProfileManager/issues">Сообщить о проблеме</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ToPChik2505/GameProfileManager/actions/workflows/installer.yml"><img src="https://github.com/ToPChik2505/GameProfileManager/actions/workflows/installer.yml/badge.svg" alt="Сборка Windows"></a>
+</p>
 
 ## Возможности
 
