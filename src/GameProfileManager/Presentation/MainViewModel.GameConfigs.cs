@@ -149,13 +149,10 @@ public sealed partial class MainViewModel
                 (string.IsNullOrWhiteSpace(backup.TargetPath) || backup.TargetPath.Equals(source.TargetPath, StringComparison.OrdinalIgnoreCase)) &&
                 (string.IsNullOrWhiteSpace(backup.RegistryValueName) || backup.RegistryValueName.Equals(source.RegistryValueName, StringComparison.OrdinalIgnoreCase)))) == true;
 
-    private bool HasGameConfigData(Guid gameId)
+    private bool HasGameConfigArtifactsToPreserve(Guid gameId)
     {
         var game = _state.Games.FirstOrDefault(item => item.Id == gameId);
-        var settings = game?.GameConfigSettings;
-        return settings is not null && (settings.AutoApply || settings.Sources.Count > 0 ||
-            settings.AdditionalProcessPaths.Count > 0 || settings.LastAppliedSnapshotId is not null ||
-            settings.LastAppliedHashes.Count > 0 || settings.Events.Count > 0) ||
+        return game?.GameConfigSettings.Status == GameConfigApplyStatus.RecoveryRequired ||
             _state.GameConfigSnapshots.Any(item => item.GameId == gameId) ||
             _state.GameConfigAssignments.Any(item => item.GameId == gameId) ||
             _state.GameConfigOriginalBackups.Any(item => item.GameId == gameId) ||

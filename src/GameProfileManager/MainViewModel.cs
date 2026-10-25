@@ -359,11 +359,26 @@ public sealed partial class MainViewModel : Observable, IDisposable
         get => ElevatedLaunchTask.IsInstalled;
         set
         {
+            bool autoStartEnabled = AutoStart;
             try
             {
-                if (value) ElevatedLaunchTask.Install();
-                else ElevatedLaunchTask.Uninstall();
-                Notice = value ? "Запуск без повторного UAC настроен." : "Обычный запрос прав администратора восстановлен.";
+                if (value)
+                {
+                    ElevatedLaunchTask.Install();
+                    if (autoStartEnabled)
+                    {
+                        ElevatedLaunchTask.InstallAutoStart();
+                        RemoveAutoStartRegistryEntry();
+                    }
+                    Notice = "Запуск без повторного UAC настроен.";
+                }
+                else
+                {
+                    if (autoStartEnabled) SetAutoStartRegistryEntry(true);
+                    ElevatedLaunchTask.UninstallAutoStart();
+                    ElevatedLaunchTask.Uninstall();
+                    Notice = "Обычный запрос прав администратора восстановлен.";
+                }
             }
             catch (Exception ex)
             {
@@ -371,40 +386,91 @@ public sealed partial class MainViewModel : Observable, IDisposable
                 Notice = "Не удалось изменить способ запуска: " + ex.Message;
             }
             Changed(nameof(SilentAdminLaunch));
+            Changed(nameof(AutoStart));
         }
     }
     public bool AutoStart
     {
         get
         {
-            try { using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"); return key?.GetValue("GameProfileManager") is not null; }
+            if (ElevatedLaunchTask.IsAutoStartInstalled) return true;
+            try { using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath); return key?.GetValue(AutoStartRegistryValue) is not null; }
             catch (Exception ex) { _store.Log(ex); return false; }
         }
         set
         {
             try
             {
-                using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
-                if (value) key.SetValue("GameProfileManager", AutoStartCommand);
-                else key.DeleteValue("GameProfileManager", false);
+                if (value && SilentAdminLaunch)
+                {
+                    ElevatedLaunchTask.InstallAutoStart();
+                    RemoveAutoStartRegistryEntry();
+                }
+                else
+                {
+                    ElevatedLaunchTask.UninstallAutoStart();
+                    SetAutoStartRegistryEntry(value);
+                }
             }
             catch (Exception ex) { _store.Log(ex); Notice = "Не удалось изменить автозапуск: " + ex.Message; }
             Changed(nameof(AutoStart));
         }
     }
+    private const string AutoStartRegistryPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string AutoStartRegistryValue = "GameProfileManager";
     private static string AutoStartCommand => '"' + Environment.ProcessPath! + '"' + " --autostart";
 
-    public static void UpgradeAutoStartEntry()
+    private static void SetAutoStartRegistryEntry(bool enabled)
     {
-        if (Environment.ProcessPath is not { } exe) return;
+        if (enabled)
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(AutoStartRegistryPath)
+                ?? throw new InvalidOperationException("Не удалось открыть раздел автозапуска Windows.");
+            key.SetValue(AutoStartRegistryValue, AutoStartCommand);
+        }
+        else
+        {
+            RemoveAutoStartRegistryEntry();
+        }
+    }
+
+    private static void RemoveAutoStartRegistryEntry()
+    {
+        using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: true);
+        key?.DeleteValue(AutoStartRegistryValue, false);
+    }
+
+    public static string? UpgradeAutoStartEntry()
+    {
+        if (Environment.ProcessPath is not { } exe) return null;
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
-            if (string.Equals(key?.GetValue("GameProfileManager") as string,
-                    '"' + exe + '"', StringComparison.OrdinalIgnoreCase))
-                key!.SetValue("GameProfileManager", AutoStartCommand);
+            using var key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryPath, writable: true);
+            string? command = key?.GetValue(AutoStartRegistryValue) as string;
+            if (string.Equals(command, '"' + exe + '"', StringComparison.OrdinalIgnoreCase))
+            {
+                key!.SetValue(AutoStartRegistryValue, AutoStartCommand);
+                command = AutoStartCommand;
+            }
+
+            // Existing Run entries launch asInvoker and show UAC. Migrate only our exact
+            // command to a fixed-argument, highest-privilege logon task after validating it.
+            if (key is null || !ElevatedLaunchTask.IsInstalled ||
+                !string.Equals(command, AutoStartCommand, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            try
+            {
+                ElevatedLaunchTask.InstallAutoStart();
+                key.DeleteValue(AutoStartRegistryValue, false);
+            }
+            catch (Exception ex)
+            {
+                return "Не удалось перенести автозапуск на задачу с повышенными правами: " + ex.Message;
+            }
         }
         catch (Exception) { }
+        return null;
     }
     public string NvidiaStatus => _sync.NvidiaStatus ?? "Проверка...";
     public string RtssStatus => _sync.RtssStatus ?? "Проверка...";
@@ -432,6 +498,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     public ICommand DuplicateProfileCommand { get; }
     public ICommand RemoveProfileCommand { get; }
     public ICommand AddGameCommand { get; }
+    public ICommand RemoveGameCommand { get; }
     public ICommand ChooseExeCommand { get; }
     public Func<string, string, string?, Task<string?>>? PickLocalFileAsync { get; set; }
     public Func<string, string, string?, Task<IReadOnlyList<string>>>? PickLocalFilesAsync { get; set; }
@@ -496,7 +563,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
         int obsoleteUtilities = 0;
         foreach (var utility in Games.Where(g => g.SteamAppId is not null && SteamDiscovery.NonGameAppIds.Contains(g.SteamAppId) &&
                      g.ProfileId is null && !g.AutoSwitchProfile && g.DisplayProfileAssignments.Count == 0 &&
-                     !SettingBackupOwnership.HasForGame(_state, g) && !HasGameConfigData(g.Id)).ToArray())
+                     !SettingBackupOwnership.HasForGame(_state, g) && !HasGameConfigArtifactsToPreserve(g.Id)).ToArray())
         {
             Games.Remove(utility);
             obsoleteUtilities++;
@@ -527,6 +594,16 @@ public sealed partial class MainViewModel : Observable, IDisposable
             Profiles.Remove(SelectedProfile); SelectedProfile = null; SaveOnly(); UpdateSummary();
         }, () => !_busy);
         AddGameCommand = new Command(() => _ = AddGameAsync(), () => !_busy);
+        RemoveGameCommand = new ParameterCommand(parameter =>
+        {
+            GameEntry? game = parameter switch
+            {
+                GameEntryViewModel card => card.Model,
+                GameEntry entry => entry,
+                _ => SelectedGame
+            };
+            RemoveGameFromLibrary(game);
+        }, () => !_busy);
         ChooseExeCommand = new Command(() => _ = ChooseExeAsync(), () => !_busy);
         ImportSteamCommand = new Command(() => _ = ImportSteamAsync(), () => !_busy);
         ImportEpicCommand = new Command(() => _ = ImportEpicAsync(), () => !_busy);
@@ -643,7 +720,7 @@ public sealed partial class MainViewModel : Observable, IDisposable
     private void RaiseCommandState()
     {
         foreach (var command in new ICommand[] { AddProfileCommand, DuplicateProfileCommand, RemoveProfileCommand,
-                     AddGameCommand, ChooseExeCommand, ImportSteamCommand, ImportEpicCommand,
+                     AddGameCommand, RemoveGameCommand, ChooseExeCommand, ImportSteamCommand, ImportEpicCommand,
                      ApplyCommand, ApplyGameCommand, VerifyCommand, RestoreCommand, BackupCommand,
                      BrowseRtssCommand, StartRtssCommand, DiagnosticsCommand })
             if (command is IRefreshableCommand refreshable) refreshable.Refresh();

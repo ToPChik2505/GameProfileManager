@@ -239,7 +239,7 @@ internal static partial class PageFactory
         }
         list.Loaded += (_, _) => ArrangeList(list.ActualWidth);
         list.SizeChanged += (_, args) => ArrangeList(args.NewSize.Width);
-        return Shell("Мои игры", "Настройки игр и их профилей, без запуска игр",
+        var composition = Shell("Мои игры", "Настройки игр и их профилей, без запуска игр",
             ResponsivePair(Field("Поиск", search), Field("Статус", Choice(
                 vm.StatusFilters.Select(item => new ModeOption<string>(item, item)), vm.StatusFilter,
                 value => vm.StatusFilter = value)), 2.5, 1),
@@ -248,6 +248,7 @@ internal static partial class PageFactory
             Strong($"Игр в библиотеке: {vm.GameCount}"),
             headers,
             list);
+        return composition;
     }
 
     private static PageComposition GameGeneral(RouteRequest request)
@@ -312,7 +313,15 @@ internal static partial class PageFactory
                 if (await Confirm(request.Owner, "Восстановление оригиналов",
                     "Снять профиль игры и восстановить исходные значения RTSS/NVIDIA, если они сохранены?", "Восстановить"))
                     vm.RestoreCommand.Execute(null);
-            }));
+            }),
+            ActionButton("Удалить игру из библиотеки", async () =>
+            {
+                if (!await Confirm(request.Owner, "Удалить игру из GPM",
+                    "Запись игры и её назначения будут удалены из библиотеки GPM. Сам профиль и файлы игры останутся. Если у игры есть резервные копии RTSS/NVIDIA, снимите профиль и восстановите исходные параметры; если есть графические снимки — удалите их назначения и снимки.",
+                    "Удалить")) return;
+                vm.RemoveGameCommand.Execute(game);
+                if (!vm.Games.Contains(game)) request.Owner.Navigate("games");
+            }, destructive: true));
         var currentState = Card(Column(
             Strong("Текущее состояние"),
             statusText,

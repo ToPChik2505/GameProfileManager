@@ -15,6 +15,35 @@ public sealed partial class MainViewModel
         var game = new GameEntry { Name = Path.GetFileNameWithoutExtension(path), ExePath = path, Detail = "Выберите профиль" };
         Games.Add(game); Hook(game); SelectedGame = game; RefreshDisplays(); SaveOnly(); UpdateSummary();
     }
+
+    private void RemoveGameFromLibrary(GameEntry? game)
+    {
+        if (game is null || !Games.Contains(game)) { Notice = "Выберите игру для удаления."; return; }
+        if (_busy || game.GameConfigSettings.Status == GameConfigApplyStatus.Applying)
+        {
+            Notice = "Дождитесь завершения текущей операции с игрой, затем повторите удаление.";
+            return;
+        }
+        if (SettingBackupOwnership.HasForGame(_state, game))
+        {
+            Notice = "Игра не удалена: сначала восстановите сохранённые исходные параметры RTSS/NVIDIA.";
+            return;
+        }
+        if (HasGameConfigArtifactsToPreserve(game.Id))
+        {
+            Notice = "Игра не удалена: сначала завершите восстановление, снимите назначения и удалите графические снимки.";
+            return;
+        }
+
+        string name = game.Name;
+        Games.Remove(game);
+        Unhook(game);
+        if (ReferenceEquals(SelectedGame, game)) SelectedGame = null;
+        RefreshDisplays();
+        SaveOnly(false);
+        UpdateSummary();
+        Notice = $"Игра «{name}» удалена из библиотеки GPM. Профиль и файлы игры не затронуты.";
+    }
     private async Task ChooseExeAsync()
     {
         if (SelectedGame is not { } game) { Notice = "Выберите игру."; return; }
@@ -96,19 +125,22 @@ public sealed partial class MainViewModel
         try
         {
             var previousGames = Games.ToArray();
-            var discovered = await Task.Run(() => SteamDiscovery.FindInstalled());
+            var discovery = await Task.Run(() => SteamDiscovery.DiscoverInstalled());
             if (_disposed) return;
-            var protectedGameIds = Games.Where(game => HasGameConfigData(game.Id)).Select(game => game.Id).ToHashSet();
-            var result = GameImportService.MergeSteam(Games, _state.Backups, discovered, protectedGameIds);
+            var protectedGameIds = Games.Where(game => HasGameConfigArtifactsToPreserve(game.Id)).Select(game => game.Id).ToHashSet();
+            var result = GameImportService.MergeSteam(Games, _state.Backups, discovery.Games, protectedGameIds,
+                discovery.PresentGameIds, discovery.IsComplete);
             foreach (var removed in previousGames.Where(game => !Games.Contains(game))) Unhook(removed);
             foreach (var game in result.AddedGames) Hook(game);
             RestoreGameSelection();
             Search = "";
             StatusFilter = "Все статусы";
             RefreshDisplays();
-            Notice = result.Discovered == 0
-                ? "Steam: установленные игры не найдены. Проверьте путь к библиотеке Steam."
-                : $"Steam: найдено {result.Discovered}, добавлено {result.Added}, убрано дублей и утилит {result.Removed}. Для неоднозначных игр выберите .exe вручную.";
+            Notice = !discovery.IsComplete
+                ? $"Steam: найдено {result.Discovered}. Каталог прочитан не полностью; отсутствующие записи оставлены. Проверьте доступность всех библиотек Steam."
+                : result.Discovered == 0
+                    ? $"Steam: установленные игры не найдены; удалено из библиотеки GPM {result.Removed}, сохранено с данными для восстановления {result.Preserved}."
+                    : $"Steam: найдено {result.Discovered}, добавлено {result.Added}, удалено отсутствующих/дублей/утилит {result.Removed}, сохранено с данными для восстановления {result.Preserved}. Для неоднозначных игр выберите .exe вручную.";
         }
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка импорта Steam: " + ex.Message; }
         finally
@@ -123,17 +155,23 @@ public sealed partial class MainViewModel
         if (!BeginActivity("Поиск установленных игр Epic Games…")) return;
         try
         {
-            var discovered = await Task.Run(() => EpicDiscovery.FindInstalled());
+            var previousGames = Games.ToArray();
+            var discovery = await Task.Run(() => EpicDiscovery.DiscoverInstalled());
             if (_disposed) return;
-            var result = GameImportService.MergeEpic(Games, discovered);
+            var protectedGameIds = Games.Where(game => HasGameConfigArtifactsToPreserve(game.Id)).Select(game => game.Id).ToHashSet();
+            var result = GameImportService.MergeEpic(Games, discovery.Games, _state.Backups, protectedGameIds,
+                discovery.PresentGameIds, discovery.IsComplete);
+            foreach (var removed in previousGames.Where(game => !Games.Contains(game))) Unhook(removed);
             foreach (var game in result.AddedGames) Hook(game);
             RestoreGameSelection();
             Search = "";
             StatusFilter = "Все статусы";
             RefreshDisplays();
-            Notice = result.Discovered == 0
-                ? "EGS: установленные игры не найдены. Проверьте установку Epic Games Launcher."
-                : $"EGS: найдено {result.Discovered}, добавлено {result.Added}, уже в библиотеке {result.Existing}. Для неоднозначных игр выберите .exe вручную.";
+            Notice = !discovery.IsComplete
+                ? $"EGS: найдено {result.Discovered}. Каталог прочитан не полностью; отсутствующие записи оставлены. Проверьте манифесты Epic Games Launcher."
+                : result.Discovered == 0
+                    ? $"EGS: установленные игры не найдены; удалено из библиотеки GPM {result.Removed}, сохранено с данными для восстановления {result.Preserved}."
+                    : $"EGS: найдено {result.Discovered}, добавлено {result.Added}, уже в библиотеке {result.Existing}, удалено отсутствующих {result.Removed}, сохранено с данными для восстановления {result.Preserved}. Для неоднозначных игр выберите .exe вручную.";
         }
         catch (Exception ex) { _store.Log(ex); Notice = "Ошибка импорта EGS: " + ex.Message; }
         finally

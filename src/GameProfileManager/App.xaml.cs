@@ -61,15 +61,17 @@ public partial class App : Microsoft.UI.Xaml.Application
 
         try
         {
+            string? startupNotice = null;
             if (!smoke)
             {
                 ElevatedLaunchTask.UpgradeIfNeeded();
-                MainViewModel.UpgradeAutoStartEntry();
+                startupNotice = MainViewModel.UpgradeAutoStartEntry();
             }
             var store = new SqliteStateStore(smoke ? Path.Combine(smokeDirectory!, "state") : null);
             SyncService? sync = smoke ? new SyncService(store,
                 _ => new SmokeRtssClient(), () => new SmokeNvidiaClient(), () => []) : null;
             MainWindowInstance = new MainWindow(new MainViewModel(store, sync));
+            if (startupNotice is not null) MainWindowInstance.ViewModel.Notice = startupNotice;
             ThemeManager.Apply(MainWindowInstance.ViewModel.Theme);
             if (!autoStart || !MainWindowInstance.StartHiddenIfTrayAvailable())
             {

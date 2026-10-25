@@ -24,7 +24,7 @@
 - Set per-game FPS limits through RTSS and manage supported NVIDIA profile options through NVIDIA DRS.
 - Save graphics configuration snapshots from files and selected registry values, assign them to displays, and optionally switch snapshots using the effective-display rules.
 - Keep safety copies and recover interrupted multi-file operations. GPM does not close games and will not capture or apply configuration while a game is running or a file conflict is unresolved.
-- Manage games imported from Steam or Epic, or added by executable; use the WinUI 3 interface with gamepad support.
+- Import and add games, remove them from their detail cards, and automatically remove missing entries on a complete Steam or Epic rescan while preserving snapshots and data needed for restoration. Use the WinUI 3 interface with gamepad support.
 - Online configuration search uses the [PCGamingWiki MediaWiki API](https://www.pcgamingwiki.com/wiki/PCGamingWiki:API): anonymous article parsing or optional bot-authenticated structured GameData. Bot credentials are stored in Windows Credential Manager.
 
 ## Requirements
@@ -39,6 +39,8 @@ Download and run the installer from [GitHub Releases](https://github.com/Vladisl
 1. Add a game and confirm its executable.
 2. Create a profile, assign it to the game, then apply it.
 3. To switch graphics settings by display, add the game's configuration files, save a snapshot for each setup, assign snapshots to displays, and enable automatic switching.
+
+The “Launch elevated without repeated UAC” setting requires installing the app under Program Files. When Windows autostart is also enabled, GPM uses a Task Scheduler logon task to start with elevated privileges without another UAC prompt.
 
 Only selected configuration sources are managed. Automatic switching uses GPM's effective-display selection and does not detect which monitor contains the game window. If files change outside GPM and do not match a saved snapshot, switching stops and preserves a safety copy.
 

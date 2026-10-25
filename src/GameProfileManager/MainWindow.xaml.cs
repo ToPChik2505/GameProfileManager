@@ -112,7 +112,7 @@ public sealed partial class MainWindow : Window
 
     private void RestoreWindow()
     {
-        AppWindow.Show();
+        if (!AppWindow.IsVisible) AppWindow.Show();
         if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Restore();
         Activate();
         _controllerInput.SetBackgroundMode(false);
@@ -395,7 +395,9 @@ public sealed partial class MainWindow : Window
     {
         if (action == ControllerAction.ToggleWindow)
         {
-            if (!AppWindow.IsVisible) RestoreWindow();
+            if (!AppWindow.IsVisible ||
+                AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized })
+                RestoreWindow();
             else if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
             return;
         }

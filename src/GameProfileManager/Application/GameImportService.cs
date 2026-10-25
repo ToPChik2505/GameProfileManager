@@ -10,7 +10,10 @@ public sealed record GameImportResult(
     int Added,
     int Removed,
     int Existing,
-    IReadOnlyList<GameEntry> AddedGames);
+    IReadOnlyList<GameEntry> AddedGames)
+{
+    public int Preserved { get; init; }
+}
 
 /// <summary>
 /// Сопоставляет импортированные игры с существующими записями.
@@ -23,13 +26,20 @@ public static class GameImportService
         ObservableCollection<GameEntry> games,
         IReadOnlyList<SettingBackup> backups,
         IReadOnlyList<GameEntry> discovered,
-        IReadOnlySet<Guid>? protectedGameIds = null)
+        IReadOnlySet<Guid>? protectedGameIds = null,
+        IReadOnlySet<string>? presentGameIds = null,
+        bool sourceIsComplete = false)
     {
         ArgumentNullException.ThrowIfNull(games);
         ArgumentNullException.ThrowIfNull(backups);
         ArgumentNullException.ThrowIfNull(discovered);
         int removed = 0;
+        int preserved = 0;
         var added = new List<GameEntry>();
+        var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (presentGameIds is not null) sourceIds.UnionWith(presentGameIds);
+        foreach (var game in discovered)
+            if (!string.IsNullOrWhiteSpace(game.SteamAppId)) sourceIds.Add(game.SteamAppId);
 
         foreach (var utility in games.Where(game =>
                      game.SteamAppId is not null &&
@@ -44,7 +54,8 @@ public static class GameImportService
 
         foreach (var game in discovered)
         {
-            var existing = games.FirstOrDefault(other => other.SteamAppId == game.SteamAppId);
+            var existing = games.FirstOrDefault(other => other.SteamAppId is not null &&
+                other.SteamAppId.Equals(game.SteamAppId, StringComparison.OrdinalIgnoreCase));
             var manuallyAdded = games.FirstOrDefault(other =>
                 other.SteamAppId is null && !string.IsNullOrWhiteSpace(game.ExePath) &&
                 other.ExePath.Equals(game.ExePath, StringComparison.OrdinalIgnoreCase));
@@ -82,18 +93,50 @@ public static class GameImportService
             added.Add(game);
         }
 
-        return new GameImportResult(discovered.Count, added.Count, removed, 0, added);
+        if (sourceIsComplete)
+        {
+            foreach (var missing in games.Where(game => !string.IsNullOrWhiteSpace(game.SteamAppId) &&
+                         !sourceIds.Contains(game.SteamAppId)).ToArray())
+            {
+                if (!string.IsNullOrWhiteSpace(missing.EpicAppName))
+                {
+                    missing.SteamAppId = null;
+                    continue;
+                }
+                if ((protectedGameIds?.Contains(missing.Id) ?? false) ||
+                    SettingBackupOwnership.HasForGame(backups, missing))
+                {
+                    preserved++;
+                    continue;
+                }
+                games.Remove(missing);
+                removed++;
+            }
+        }
+
+        return new GameImportResult(discovered.Count, added.Count, removed, 0, added) { Preserved = preserved };
     }
 
     /// <summary>Объединяет Epic Games Store по AppName или EXE без сброса профилей.</summary>
     public static GameImportResult MergeEpic(
         ObservableCollection<GameEntry> games,
-        IReadOnlyList<GameEntry> discovered)
+        IReadOnlyList<GameEntry> discovered,
+        IReadOnlyList<SettingBackup>? backups = null,
+        IReadOnlySet<Guid>? protectedGameIds = null,
+        IReadOnlySet<string>? presentGameIds = null,
+        bool sourceIsComplete = false)
     {
         ArgumentNullException.ThrowIfNull(games);
         ArgumentNullException.ThrowIfNull(discovered);
+        backups ??= Array.Empty<SettingBackup>();
         int existingCount = 0;
+        int removed = 0;
+        int preserved = 0;
         var added = new List<GameEntry>();
+        var sourceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (presentGameIds is not null) sourceIds.UnionWith(presentGameIds);
+        foreach (var game in discovered)
+            if (!string.IsNullOrWhiteSpace(game.EpicAppName)) sourceIds.Add(game.EpicAppName);
 
         foreach (var game in discovered)
         {
@@ -119,6 +162,27 @@ public static class GameImportService
             added.Add(game);
         }
 
-        return new GameImportResult(discovered.Count, added.Count, 0, existingCount, added);
+        if (sourceIsComplete)
+        {
+            foreach (var missing in games.Where(game => !string.IsNullOrWhiteSpace(game.EpicAppName) &&
+                         !sourceIds.Contains(game.EpicAppName)).ToArray())
+            {
+                if (!string.IsNullOrWhiteSpace(missing.SteamAppId))
+                {
+                    missing.EpicAppName = null;
+                    continue;
+                }
+                if ((protectedGameIds?.Contains(missing.Id) ?? false) ||
+                    SettingBackupOwnership.HasForGame(backups, missing))
+                {
+                    preserved++;
+                    continue;
+                }
+                games.Remove(missing);
+                removed++;
+            }
+        }
+
+        return new GameImportResult(discovered.Count, added.Count, removed, existingCount, added) { Preserved = preserved };
     }
 }

@@ -15,27 +15,51 @@ public static class SteamDiscovery
         "1812620", // DSX
         "993090"  // Lossless Scaling
     };
-    public static IReadOnlyList<GameEntry> FindInstalled(string? steamDirectory = null)
+    public static IReadOnlyList<GameEntry> FindInstalled(string? steamDirectory = null) =>
+        DiscoverInstalled(steamDirectory).Games;
+
+    public static StoreGameDiscoverySnapshot DiscoverInstalled(string? steamDirectory = null)
     {
         string? steam = steamDirectory ?? FindSteamDirectory();
-        if (string.IsNullOrWhiteSpace(steam) || !Directory.Exists(steam)) return [];
+        if (string.IsNullOrWhiteSpace(steam) || !Directory.Exists(steam))
+            return new([], new HashSet<string>(StringComparer.OrdinalIgnoreCase), false);
         var appInfo = new SteamAppInfoCache(Path.Combine(steam, "appcache", "appinfo.vdf"));
         var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { steam };
+        bool complete = true;
         string foldersFile = Path.Combine(steam, "steamapps", "libraryfolders.vdf");
-        if (File.Exists(foldersFile))
+        try
         {
             string text = File.ReadAllText(foldersFile);
+            int libraryPathCount = 0;
             foreach (Match match in Field.Matches(text))
-                if (match.Groups["key"].Value.Equals("path", StringComparison.OrdinalIgnoreCase))
-                    libraries.Add(Unescape(match.Groups["value"].Value));
+            {
+                if (!match.Groups["key"].Value.Equals("path", StringComparison.OrdinalIgnoreCase)) continue;
+                string path = Unescape(match.Groups["value"].Value);
+                if (string.IsNullOrWhiteSpace(path)) { complete = false; continue; }
+                libraries.Add(path);
+                libraryPathCount++;
+            }
+            if (libraryPathCount == 0) complete = false;
         }
+        catch (FileNotFoundException) { }
+        catch (DirectoryNotFoundException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        { complete = false; }
         var games = new List<GameEntry>();
         var seenAppIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var presentAppIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string library in libraries)
         {
             string steamapps = Path.Combine(library, "steamapps");
-            if (!Directory.Exists(steamapps)) continue;
-            foreach (string manifest in Directory.EnumerateFiles(steamapps, "appmanifest_*.acf"))
+            if (!Directory.Exists(steamapps)) { complete = false; continue; }
+            string[] manifests;
+            try { manifests = Directory.GetFiles(steamapps, "appmanifest_*.acf"); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                complete = false;
+                continue;
+            }
+            foreach (string manifest in manifests)
             {
                 try
                 {
@@ -43,11 +67,14 @@ public static class SteamDiscovery
                     string? appid = FirstValue(fields, "appid");
                     string? name = FirstValue(fields, "name");
                     string? install = FirstValue(fields, "installdir");
-                    if (string.IsNullOrWhiteSpace(appid) || string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(install) ||
-                        NonGameAppIds.Contains(appid)) continue;
+                    if (string.IsNullOrWhiteSpace(appid)) { complete = false; continue; }
+                    presentAppIds.Add(appid);
+                    if (NonGameAppIds.Contains(appid)) continue;
                     string? appType = appInfo.GetType(appid);
                     if (appType is not null && !appType.Equals("Game", StringComparison.OrdinalIgnoreCase) &&
                         !appType.Equals("Demo", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(install))
+                    { complete = false; continue; }
                     string directory = Path.Combine(steamapps, "common", install);
                     if (!Directory.Exists(directory) || !seenAppIds.Add(appid)) continue;
                     string? executable = GameExecutableDiscovery.FindBest(directory);
@@ -58,10 +85,11 @@ public static class SteamDiscovery
                         Detail = executable is not null ? "Выберите профиль" : "Выберите игровой .exe (Steam не указывает его в манифесте)"
                     });
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+                { complete = false; }
             }
         }
-        return games;
+        return new(games, presentAppIds, complete);
     }
 
     public static string? FindArtwork(string? appId)
